@@ -4,13 +4,17 @@ import { createUserWithEmailAndPassword } from 'firebase/auth';
 import { setDoc, doc } from 'firebase/firestore';
 import { auth, db } from '../firebase';
 import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { getFirebaseErrorMessage } from '../utils/firebaseErrors';
+import ErrorAlert from './ErrorAlert';
+import { differenceInYears, parse } from 'date-fns';
 
 const SignupPage: React.FC = () => {
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [age, setAge] = useState('');
+  const [dateOfBirth, setDateOfBirth] = useState('');
+  const [gender, setGender] = useState('');
   const [interests, setInterests] = useState('');
   const [address, setAddress] = useState('');
   const [profilePic, setProfilePic] = useState<File | null>(null);
@@ -28,41 +32,64 @@ const SignupPage: React.FC = () => {
     return url;
   };
 
+  const isOver18 = (birthDate: string): boolean => {
+    try {
+      const parsedDate = parse(birthDate, 'yyyy-MM-dd', new Date());
+      const age = differenceInYears(new Date(), parsedDate);
+      return age >= 18;
+    } catch {
+      return false;
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    
+    if (!isOver18(dateOfBirth)) {
+      setError('You must be 18 or older to create an account.');
+      return;
+    }
+
     setLoading(true);
     setError('');
     try {
       console.log('Creating user account');
       const userCredential = await createUserWithEmailAndPassword(auth, email, password);
       const user = userCredential.user;
-      console.log('User account created successfully');
+      console.log('User account created successfully', user.uid);
   
       let profilePicUrl = '';
       if (profilePic) {
         console.log('Uploading profile picture');
         profilePicUrl = await uploadProfilePic(profilePic, user.uid);
+        console.log('Profile picture URL:', profilePicUrl);
       }
   
-      console.log('Creating user document in Firestore');
-      await setDoc(doc(db, 'users', user.uid), {
-        id: user.uid,  // Add this line to store the user ID
+      const userData = {
+        id: user.uid,
         firstName,
         lastName,
         email,
-        age: parseInt(age),
+        dateOfBirth,
+        gender,
         interests: interests.split(',').map(interest => interest.trim()),
         address,
         profilePicUrl,
-      });
+      };
+      
+      console.log('Attempting to create user document with data:', userData);
+      await setDoc(doc(db, 'users', user.uid), userData);
       console.log('User document created successfully');
   
       console.log('Signup process completed, navigating to home');
       navigate('/home');
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error signing up:', error);
-      if (error instanceof Error) {
-        setError(`Failed to create account: ${error.message}`);
+      // Handle Firebase Auth errors
+      if (error.code) {
+        setError(getFirebaseErrorMessage(error.code));
+      } else if (error instanceof Error) {
+        setError(error.message);
       } else {
         setError('Failed to create account. Please try again.');
       }
@@ -76,7 +103,7 @@ const SignupPage: React.FC = () => {
       <h1 className="text-4xl font-bold text-white mb-8">Your App Name</h1>
       <div className="bg-white p-8 rounded-lg shadow-md w-96">
         <h2 className="text-3xl font-bold text-center text-pink-600 mb-6">Sign Up</h2>
-        {error && <p className="text-red-500 text-center mb-4">{error}</p>}
+        {error && <ErrorAlert message={error} />}
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="form-group">
             <div>
@@ -125,16 +152,35 @@ const SignupPage: React.FC = () => {
             />
           </div>
           <div>
-            <label htmlFor="age" className="block text-sm font-medium text-gray-700">Age</label>
+            <label htmlFor="dateOfBirth" className="block text-sm font-medium text-gray-700">
+              Date of Birth
+            </label>
             <input
-              type="number"
-              id="age"
-              value={age}
-              onChange={(e) => setAge(e.target.value)}
+              type="date"
+              id="dateOfBirth"
+              value={dateOfBirth}
+              onChange={(e) => setDateOfBirth(e.target.value)}
               className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-pink-500 focus:border-pink-500"
               required
-              min="18"
             />
+          </div>
+          <div>
+            <label htmlFor="gender" className="block text-sm font-medium text-gray-700">
+              Gender
+            </label>
+            <select
+              id="gender"
+              value={gender}
+              onChange={(e) => setGender(e.target.value)}
+              className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-pink-500 focus:border-pink-500"
+              required
+            >
+              <option value="">Select gender</option>
+              <option value="male">Male</option>
+              <option value="female">Female</option>
+              <option value="non-binary">Non-binary</option>
+              <option value="prefer-not-to-say">Prefer not to say</option>
+            </select>
           </div>
           <div>
             <label htmlFor="interests" className="block text-sm font-medium text-gray-700">Interests (separate with commas)</label>

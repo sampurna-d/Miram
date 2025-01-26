@@ -2,28 +2,44 @@ import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { signInWithEmailAndPassword } from 'firebase/auth';
 import { auth } from '../firebase';
+import { getFirebaseErrorMessage } from '../utils/firebaseErrors';
+import ErrorAlert from './ErrorAlert';
 
 const LoginPage: React.FC = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
   const navigate = useNavigate();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setLoading(true);
+    setError('');
+    
     try {
       await signInWithEmailAndPassword(auth, email, password);
       navigate('/home');
-    } catch (error) {
-      console.error('Error logging in:', error);
-      // Handle error (show error message to user)
+    } catch (error: any) {
+      console.error('Login error:', error);
+      if (error.code) {
+        setError(getFirebaseErrorMessage(error.code));
+      } else if (error instanceof Error) {
+        setError(error.message);
+      } else {
+        setError('Failed to log in. Please try again.');
+      }
+    } finally {
+      setLoading(false);
     }
   };
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-r from-pink-300 to-purple-300">
-      <h1 className="text-4xl font-bold text-white mb-8">Your App Name</h1>
+      <h1 className="text-4xl font-bold text-white mb-8">Love Connect</h1>
       <div className="bg-white p-8 rounded-lg shadow-md w-96">
         <h2 className="text-3xl font-bold text-center text-pink-600 mb-6">Login to LoveConnect</h2>
+        {error && <ErrorAlert message={error} />}
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <label htmlFor="email" className="block text-sm font-medium text-gray-700">Email</label>
