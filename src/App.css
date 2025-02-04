@@ -36,3 +36,11 @@
     transform: rotate(360deg);
   }
 }
+
+.input-cute {
+  @apply rounded-xl border-pink-100 focus:border-pink-300 focus:ring-pink-200;
+}
+
+.card-hover {
+  @apply transition-all duration-300 hover:shadow-lg hover:shadow-pink-100;
+}

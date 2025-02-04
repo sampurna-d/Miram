@@ -1,12 +1,13 @@
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { createUserWithEmailAndPassword } from 'firebase/auth';
-import { setDoc, doc } from 'firebase/firestore';
+import { setDoc, doc, Timestamp } from 'firebase/firestore';
 import { auth, db } from '../firebase';
 import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { getFirebaseErrorMessage } from '../utils/firebaseErrors';
 import ErrorAlert from './ErrorAlert';
 import { differenceInYears, parse } from 'date-fns';
+import { UserProfile } from '../types/user';
 
 const SignupPage: React.FC = () => {
   const [firstName, setFirstName] = useState('');
@@ -65,16 +66,35 @@ const SignupPage: React.FC = () => {
         console.log('Profile picture URL:', profilePicUrl);
       }
   
-      const userData = {
+      const dob = new Date(dateOfBirth);
+      if (isNaN(dob.getTime())) {
+        console.error("Invalid date of birth:", dateOfBirth);
+        // Handle the error (e.g., show a message to the user)
+        return; // Prevent further execution
+      }
+  
+      const userData: Omit<UserProfile, 'lastActive' | 'isOnline' | 'matches' | 'blockedUsers'> = {
         id: user.uid,
         firstName,
         lastName,
         email,
-        dateOfBirth,
+        dateOfBirth: Timestamp.fromDate(dob),
         gender,
+        bio: '',
+        location: address,
+        interestedIn: '',
         interests: interests.split(',').map(interest => interest.trim()),
-        address,
-        profilePicUrl,
+        occupation: '',
+        education: '',
+        profilePicture: profilePicUrl,
+        preferences: {
+          ageRange: {
+            min: 18,
+            max: 100
+          },
+          distance: 100,
+          showMe: true
+        }
       };
       
       console.log('Attempting to create user document with data:', userData);
@@ -113,7 +133,7 @@ const SignupPage: React.FC = () => {
                 id="firstName"
                 value={firstName}
                 onChange={(e) => setFirstName(e.target.value)}
-                className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-pink-500 focus:border-pink-500"
+                className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-xl shadow-sm focus:outline-none focus:ring-pink-500 focus:border-pink-500"
                 required
               />
             </div>
@@ -124,7 +144,7 @@ const SignupPage: React.FC = () => {
                 id="lastName"
                 value={lastName}
                 onChange={(e) => setLastName(e.target.value)}
-                className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-pink-500 focus:border-pink-500"
+                className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-xl shadow-sm focus:outline-none focus:ring-pink-500 focus:border-pink-500"
                 required
               />
             </div>
@@ -136,7 +156,7 @@ const SignupPage: React.FC = () => {
               id="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-pink-500 focus:border-pink-500"
+              className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-xl shadow-sm focus:outline-none focus:ring-pink-500 focus:border-pink-500"
               required
             />
           </div>
@@ -147,7 +167,7 @@ const SignupPage: React.FC = () => {
               id="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-pink-500 focus:border-pink-500"
+              className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-xl shadow-sm focus:outline-none focus:ring-pink-500 focus:border-pink-500"
               required
             />
           </div>
@@ -160,7 +180,7 @@ const SignupPage: React.FC = () => {
               id="dateOfBirth"
               value={dateOfBirth}
               onChange={(e) => setDateOfBirth(e.target.value)}
-              className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-pink-500 focus:border-pink-500"
+              className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-xl shadow-sm focus:outline-none focus:ring-pink-500 focus:border-pink-500"
               required
             />
           </div>
@@ -172,7 +192,7 @@ const SignupPage: React.FC = () => {
               id="gender"
               value={gender}
               onChange={(e) => setGender(e.target.value)}
-              className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-pink-500 focus:border-pink-500"
+              className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-xl shadow-sm focus:outline-none focus:ring-pink-500 focus:border-pink-500"
               required
             >
               <option value="">Select gender</option>
@@ -188,7 +208,7 @@ const SignupPage: React.FC = () => {
               id="interests"
               value={interests}
               onChange={(e) => setInterests(e.target.value)}
-              className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-pink-500 focus:border-pink-500"
+              className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-xl shadow-sm focus:outline-none focus:ring-pink-500 focus:border-pink-500"
               required
             />
           </div>
@@ -198,7 +218,7 @@ const SignupPage: React.FC = () => {
               id="address"
               value={address}
               onChange={(e) => setAddress(e.target.value)}
-              className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-pink-500 focus:border-pink-500"
+              className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-xl shadow-sm focus:outline-none focus:ring-pink-500 focus:border-pink-500"
               required
             />
           </div>
@@ -209,13 +229,13 @@ const SignupPage: React.FC = () => {
               id="profile-pic"
               accept="image/*"
               onChange={(e) => setProfilePic(e.target.files ? e.target.files[0] : null)}
-              className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-pink-500 focus:border-pink-500"
+              className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-xl shadow-sm focus:outline-none focus:ring-pink-500 focus:border-pink-500"
               required
             />
           </div>
           <button
             type="submit"
-            className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-pink-600 hover:bg-pink-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-pink-500"
+            className="w-full flex justify-center py-2 px-4 border border-transparent rounded-xl shadow-sm text-sm font-medium text-white bg-gradient-to-r from-pink-500 to-purple-500 hover:from-pink-600 hover:to-purple-600"
             disabled={loading}
           >
             {loading ? 'Creating Account...' : 'Create Account'}

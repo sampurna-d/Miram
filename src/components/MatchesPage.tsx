@@ -13,17 +13,10 @@ import Confetti from 'react-confetti';
 import { cn } from "../lib/utils";
 import { motion } from 'framer-motion';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "./ui/dialog"
-
-interface Match {
-  id: string;
-  name: string;
-  photoURL: string;
-  lastMessage?: string;
-  age?: number;
-  location?: string;
-  interests?: string[];
-  bio?: string;
-}
+import { matchService } from '../services/matches';
+import { Match } from '../types/match';
+import { UserProfile } from '../types/user'; // Import the existing type
+import { calculateAge } from '../utils/helpers';
 
 interface Message {
   id: string;
@@ -32,13 +25,12 @@ interface Message {
   timestamp: any;
 }
 
-interface UserData {
-  firstName: string;
-  lastName: string;
-  profilePicUrl?: string;
-  age?: number;
-  interests?: string[];
-  bio?: string;
+interface ChatMessage {
+  id: string;
+  senderId: string;
+  text: string;
+  timestamp: any;
+  isRead?: boolean;
 }
 
 const inspirationalMessages = [
@@ -79,10 +71,43 @@ export default function MatchesPage() {
   const inputRef = useRef<HTMLInputElement>(null);
   const [chatOpen, setChatOpen] = useState(false);
   const [selectedMatch, setSelectedMatch] = useState<Match | null>(null);
+  const [matches, setMatches] = useState<Match[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   // The main progress (0 -> 1) as messageCount goes from 0 -> 50
   const messageCount = messages.length;
   const progress = Math.min(messageCount / 50, 1);
+
+  useEffect(() => {
+    const fetchMatches = async () => {
+      if (!auth.currentUser) {
+        console.log("No authenticated user");
+        return;
+      }
+
+      setIsLoading(true);
+      try {
+        console.log("Fetching matches for:", auth.currentUser.uid);
+        const userMatches = await matchService.getMatches(auth.currentUser.uid);
+        console.log("Fetched matches:", userMatches);
+        
+        if (userMatches.length > 0) {
+          setMatches(userMatches);
+          setMatch(userMatches[0]); // Set the first match as current
+        } else {
+          console.log("No matches found");
+        }
+      } catch (err) {
+        console.error("Error fetching matches:", err);
+        setError("Failed to load matches");
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchMatches();
+  }, []);
 
   useEffect(() => {
     const fetchMatch = async () => {
@@ -117,16 +142,21 @@ export default function MatchesPage() {
             console.log("Other user doc exists:", userDoc.exists());
             
             if (userDoc.exists()) {
-              const userData = userDoc.data() as UserData;
-              const matchInfo = {
+              const userData = userDoc.data() as UserProfile;
+              console.log("User data:", userData);
+              const matchInfo: Match = {
                 id: querySnapshot.docs[0].id,
                 name: `${userData.firstName} ${userData.lastName}`,
-                photoURL: userData.profilePicUrl || '/placeholder.svg',
+                photoURL: userData.profilePicture || '/placeholder.svg',
                 lastMessage: matchData.lastMessage,
-                age: userData.age,
-                interests: userData.interests,
-                bio: userData.bio,
+                age: calculateAge(userData.dateOfBirth.toDate()),
+                interests: userData.interests || [],
+                bio: userData.bio || '',
                 location: matchData.location,
+
+                users: [auth.currentUser.uid, otherUserId] as [string, string],
+                createdAt: new Date(),
+                lastActivity: new Date()
               };
               console.log("Setting match info:", matchInfo);
               setMatch(matchInfo);
@@ -199,7 +229,7 @@ export default function MatchesPage() {
           const welcomeMessage = {
             matchId: match.id,
             senderId: 'system',
-            text: `Congratulations! You've matched with ${match.name}. Why not start the conversation by sharing something you both have in common?`,
+            text: `Congratulations! You've matched with ${matchService.getMatches.name}. Why not start the conversation by sharing something you both have in common?`,
             timestamp: serverTimestamp(),
           };
           addDoc(collection(db, 'messages'), welcomeMessage);
@@ -295,6 +325,14 @@ export default function MatchesPage() {
     console.log(`Reporting match: ${matchId}`);
   };
 
+  if (isLoading) {
+    return <div>Loading...</div>;
+  }
+
+  if (error) {
+    return <div>{error}</div>;
+  }
+
   return (
     <div className="min-h-screen bg-gradient-to-b from-pink-50 to-purple-50 p-4">
       <div className="max-w-4xl mx-auto">
@@ -334,11 +372,12 @@ export default function MatchesPage() {
 
                   <div className="flex justify-between items-center">
                     <Button
-                      onClick={() => handleMessage(match.id)}
-                      className="flex-1 mr-2 group"
+                      variant="ghost"
+                      size="icon"
+                      className="hover:bg-pink-50"
+                      onClick={() => navigate(`/chat/${match.id}`)}
                     >
-                      <MessageCircle className="w-4 h-4 mr-2 group-hover:animate-bounce" />
-                      Message
+                      <MessageSquare className="h-4 w-4" />
                     </Button>
 
                     <Popover>
@@ -393,47 +432,119 @@ export default function MatchesPage() {
 
         {/* Chat Dialog */}
         <Dialog open={chatOpen} onOpenChange={setChatOpen}>
-          <DialogContent className="max-w-md max-h-[80vh] flex flex-col">
-            <DialogHeader>
-              <DialogTitle className="text-2xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-pink-600 to-purple-600">
-                Chat with {selectedMatch?.name}
-              </DialogTitle>
-            </DialogHeader>
-            
-            <ScrollArea className="flex-1 pr-4">
-              <div className="space-y-4">
-                {messages.map((message, index) => (
-                  <div
-                    key={index}
-                    className={`flex ${
-                      message.senderId === auth.currentUser?.uid ? 'justify-end' : 'justify-start'
-                    }`}
-                  >
-                    <div
-                      className={`max-w-[80%] p-3 rounded-2xl ${
-                        message.senderId === auth.currentUser?.uid
-                          ? 'bg-gradient-to-r from-pink-500 to-purple-500 text-white'
-                          : 'bg-gray-100'
-                      }`}
-                    >
-                      {message.text}
+          <DialogContent className="max-w-2xl max-h-[80vh] p-0 bg-gradient-to-b from-pink-50 to-purple-50 rounded-2xl">
+            <div className="flex flex-col h-[80vh]">
+              {/* Chat Header */}
+              <div className="p-4 border-b border-pink-100 bg-white/50 backdrop-blur-sm rounded-t-2xl">
+                <div className="flex items-center space-x-4">
+                  <Avatar className="h-12 w-12 border-2 border-pink-200">
+                    <AvatarImage src={selectedMatch?.photoURL} />
+                    <AvatarFallback className="bg-pink-100 text-pink-700">
+                      {selectedMatch?.name?.split(' ').map(n => n[0]).join('')}
+                    </AvatarFallback>
+                  </Avatar>
+                  <div>
+                    <h3 className="text-xl font-semibold text-transparent bg-clip-text bg-gradient-to-r from-pink-600 to-purple-600">
+                      {selectedMatch?.name}
+                    </h3>
+                    <div className="flex items-center gap-2 text-sm text-gray-500">
+                      <span className="flex items-center gap-1">
+                        <span className="w-2 h-2 rounded-full bg-green-500"></span>
+                        Online
+                      </span>
+                      <span>•</span>
+                      <span>{selectedMatch?.age} years old</span>
                     </div>
                   </div>
-                ))}
+                </div>
               </div>
-            </ScrollArea>
 
-            <div className="flex gap-2 mt-4">
-              <Input
-                placeholder="Type a message..."
-                value={newMessage}
-                onChange={(e) => setNewMessage(e.target.value)}
-                onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
-                className="input-cute"
-              />
-              <Button onClick={handleSendMessage} size="icon" className="group">
-                <Send className="h-4 w-4 group-hover:animate-bounce" />
-              </Button>
+              {/* Chat Messages */}
+              <ScrollArea className="flex-1 p-4">
+                <div className="space-y-4">
+                  {messages.map((message, index) => (
+                    <div
+                      key={index}
+                      className={`flex ${
+                        message.senderId === auth.currentUser?.uid ? 'justify-end' : 'justify-start'
+                      }`}
+                    >
+                      {message.senderId !== auth.currentUser?.uid && (
+                        <Avatar className="h-8 w-8 mr-2">
+                          <AvatarImage src={selectedMatch?.photoURL} />
+                          <AvatarFallback className="bg-pink-100 text-pink-700">
+                            {selectedMatch?.name?.split(' ').map(n => n[0]).join('')}
+                          </AvatarFallback>
+                        </Avatar>
+                      )}
+                      <div
+                        className={cn(
+                          "max-w-[70%] p-3 rounded-2xl",
+                          message.senderId === auth.currentUser?.uid
+                            ? "bg-gradient-to-r from-pink-500 to-purple-500 text-white rounded-tr-none"
+                            : "bg-white/80 backdrop-blur-sm text-gray-800 rounded-tl-none"
+                        )}
+                      >
+                        <p>{message.text}</p>
+                        <div 
+                          className={cn(
+                            "text-xs mt-1",
+                            message.senderId === auth.currentUser?.uid
+                              ? "text-pink-100"
+                              : "text-gray-500"
+                          )}
+                        >
+                          {new Date(message.timestamp?.toDate()).toLocaleTimeString([], { 
+                            hour: '2-digit', 
+                            minute: '2-digit' 
+                          })}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                  {messages.length === 0 && (
+                    <div className="flex flex-col items-center justify-center h-48 text-gray-500">
+                      <MessageCircle className="w-12 h-12 mb-2 text-pink-300" />
+                      <p className="text-center">No messages yet.<br />Start the conversation!</p>
+                    </div>
+                  )}
+                </div>
+              </ScrollArea>
+
+              {/* Chat Input */}
+              <div className="p-4 border-t border-pink-100 bg-white/50 backdrop-blur-sm rounded-b-2xl">
+                <form 
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    handleSendMessage();
+                  }}
+                  className="flex items-end gap-2"
+                >
+                  <div className="flex-1 relative">
+                    <Input
+                      placeholder="Type a message..."
+                      value={newMessage}
+                      onChange={(e) => setNewMessage(e.target.value)}
+                      className="pr-12 rounded-xl border-pink-200 focus:border-pink-500 focus:ring-pink-500 bg-white/80"
+                      ref={inputRef}
+                    />
+                    <button
+                      type="button"
+                      className="absolute right-3 bottom-2 text-pink-400 hover:text-pink-600"
+                      onClick={() => {/* Add emoji picker here */}}
+                    >
+                      😊
+                    </button>
+                  </div>
+                  <Button 
+                    type="submit"
+                    size="icon"
+                    className="h-10 w-10 rounded-xl bg-gradient-to-r from-pink-500 to-purple-500 hover:from-pink-600 hover:to-purple-600 group"
+                  >
+                    <Send className="h-4 w-4 text-white group-hover:scale-110 transition-transform" />
+                  </Button>
+                </form>
+              </div>
             </div>
           </DialogContent>
         </Dialog>
