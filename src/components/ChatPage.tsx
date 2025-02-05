@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { collection, query, where, orderBy, onSnapshot, addDoc, serverTimestamp, doc, getDoc } from 'firebase/firestore';
+import { collection, query, where, orderBy, onSnapshot, addDoc, serverTimestamp, doc, getDoc, limit } from 'firebase/firestore';
 import { auth, db } from '../firebase';
 import { Send, ArrowLeft, Phone, MapPin, Calendar } from 'lucide-react';
 import { Button } from "./ui/button";
@@ -12,9 +12,11 @@ import { Match } from '../types/match';
 import { UserProfile } from '../types/user';
 import { calculateAge } from '../utils/helpers';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "./ui/dialog";
+import { BITMOJI_THRESHOLD } from '../constants/app';
 
 interface Message {
   id: string;
+  matchId: string;
   senderId: string;
   text: string;
   timestamp: any;
@@ -31,6 +33,7 @@ export default function ChatPage() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const [isUserInfoOpen, setIsUserInfoOpen] = useState(false);
+  const [messageCount, setMessageCount] = useState(0);
 
   useEffect(() => {
     const fetchMatch = async () => {
@@ -50,34 +53,44 @@ export default function ChatPage() {
         if (userDoc.exists()) {
           const userData = userDoc.data() as UserProfile;
           setMatch({
-            ...matchData,
             id: matchDoc.id,
             name: `${userData.firstName} ${userData.lastName}`,
             photoURL: userData.profilePicture || '/placeholder.svg',
+            avatar: userData.avatar || '/placeholder.svg',
             age: calculateAge(userData.dateOfBirth.toDate()),
+            interests: userData.interests || [],
+            bio: userData.bio || '',
+            location: userData.location || '',
+            users: matchData.users,
+            createdAt: matchData.createdAt,
+            lastActivity: matchData.lastActivity
           } as Match);
         }
       }
-
     };
 
     fetchMatch();
   }, [matchId, navigate]);
 
   useEffect(() => {
-    if (!matchId) return;
+    if (!matchId || !auth.currentUser) return;
 
+    const messagesRef = collection(db, 'messages');
     const q = query(
-      collection(db, 'messages'),
+      messagesRef,
       where('matchId', '==', matchId),
       orderBy('timestamp', 'asc')
     );
+
+    console.log('Setting up messages listener for matchId:', matchId);
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const newMessages = snapshot.docs.map(doc => ({
         id: doc.id,
         ...doc.data()
       })) as Message[];
+      
+      console.log('Received messages:', newMessages);
       setMessages(newMessages);
     });
 
@@ -89,16 +102,20 @@ export default function ChatPage() {
   }, [messages]);
 
   const handleSendMessage = async () => {
-    if (!newMessage.trim() || !match || !auth.currentUser) return;
+    if (!newMessage.trim() || !matchId || !auth.currentUser) return;
 
     try {
-      await addDoc(collection(db, 'messages'), {
-        matchId: match.id,
+      const messageData = {
+        matchId: matchId,
         senderId: auth.currentUser.uid,
         text: newMessage.trim(),
         timestamp: serverTimestamp(),
-        isRead: false,
-      });
+        isRead: false
+      };
+
+      console.log('Sending message:', messageData);
+      
+      await addDoc(collection(db, 'messages'), messageData);
       setNewMessage('');
       inputRef.current?.focus();
     } catch (error) {
@@ -115,15 +132,30 @@ export default function ChatPage() {
     });
   };
 
-  const shouldShowDate = (message: Message, index: number) => {
+  const shouldShowTimestamp = (message: Message, index: number) => {
+    if (selectedMessageId === message.id) return true;
     if (index === 0) return true;
     
-    const currentDate = message.timestamp?.toDate();
-    const prevDate = messages[index - 1].timestamp?.toDate();
+    const currentTime = message.timestamp?.toDate();
+    const prevTime = messages[index - 1].timestamp?.toDate();
     
-    if (!currentDate || !prevDate) return false;
+    if (!currentTime || !prevTime) return false;
     
-    return currentDate.getTime() - prevDate.getTime() > 5 * 60 * 1000; // Show time if more than 5 minutes apart
+    // Show timestamp if messages are more than 5 minutes apart
+    return (currentTime.getTime() - prevTime.getTime()) > 5 * 60 * 1000;
+  };
+
+  const shouldShowAvatar = (messageIndex: number) => {
+    const previousMessages = messages.slice(0, messageIndex + 1);
+    const count = previousMessages.filter(m => m.senderId !== auth.currentUser?.uid).length;
+    return count <= BITMOJI_THRESHOLD;
+  };
+
+  const getDisplayPicture = () => {
+    const totalMessages = messages.length;
+    return totalMessages <= BITMOJI_THRESHOLD 
+      ? (match?.avatar || '/placeholder.svg')
+      : (match?.photoURL || '/placeholder.svg');
   };
 
   return (
@@ -145,7 +177,7 @@ export default function ChatPage() {
               onClick={() => setIsUserInfoOpen(true)}
             >
               <Avatar className="h-12 w-12 border-2 border-pink-200">
-                <AvatarImage src={match?.photoURL} />
+                <AvatarImage src={getDisplayPicture()} />
                 <AvatarFallback className="bg-pink-100 text-pink-700">
                   {match?.name?.split(' ').map(n => n[0]).join('')}
                 </AvatarFallback>
@@ -174,44 +206,54 @@ export default function ChatPage() {
       </div>
 
       {/* Chat Messages */}
-      <ScrollArea className="flex-1 p-4 pb-24">
+      <ScrollArea className="flex-1 p-4 pb-32">
         <div className="max-w-4xl mx-auto space-y-4">
-          {messages.map((message, index) => (
-            <div key={message.id} className="space-y-2">
-              {shouldShowDate(message, index) && (
-                <div className="flex justify-center">
-                  <span className="text-xs text-gray-500 bg-white/80 px-2 py-1 rounded-full">
-                    {formatMessageDate(message.timestamp)}
-                  </span>
-                </div>
-              )}
-              <div
-                className={`flex ${
-                  message.senderId === auth.currentUser?.uid ? 'justify-end' : 'justify-start'
-                }`}
-              >
-                {message.senderId !== auth.currentUser?.uid && (
-                  <Avatar className="h-8 w-8 mr-2">
-                    <AvatarImage src={match?.photoURL} />
-                    <AvatarFallback className="bg-pink-100 text-pink-700">
-                      {match?.name?.split(' ').map(n => n[0]).join('')}
-                    </AvatarFallback>
-                  </Avatar>
+          {messages.length === 0 ? (
+            <div className="flex flex-col items-center justify-center h-48 text-gray-500">
+              <p className="text-center">No messages yet.<br />Start the conversation!</p>
+            </div>
+          ) : (
+            messages.map((message, index) => (
+              <div key={message.id} className="space-y-2">
+                {shouldShowTimestamp(message, index) && (
+                  <div className="flex justify-center">
+                    <span className="text-xs text-gray-500 bg-white/80 px-3 py-1.5 rounded-full shadow-sm">
+                      {formatMessageDate(message.timestamp)}
+                    </span>
+                  </div>
                 )}
                 <div
-                  onClick={() => setSelectedMessageId(selectedMessageId === message.id ? null : message.id)}
                   className={cn(
-                    "max-w-[70%] p-3 rounded-2xl cursor-pointer transition-all",
-                    message.senderId === auth.currentUser?.uid
-                      ? "bg-gradient-to-r from-pink-500 to-purple-500 text-white rounded-tr-none hover:bg-gradient-to-r hover:from-pink-600 hover:to-purple-600"
-                      : "bg-white/80 backdrop-blur-sm text-gray-800 rounded-tl-none hover:bg-white"
+                    "flex",
+                    message.senderId === auth.currentUser?.uid ? "justify-end" : "justify-start"
                   )}
                 >
-                  <p>{message.text}</p>
+                  {message.senderId !== auth.currentUser?.uid && (
+                    <Avatar className="h-8 w-8">
+                      <AvatarImage 
+                        src={shouldShowAvatar(index) ? match?.avatar : match?.photoURL} 
+                        alt={match?.name}
+                      />
+                      <AvatarFallback>{match?.name[0]}</AvatarFallback>
+                    </Avatar>
+                  )}
+                  <div
+                    onClick={() => setSelectedMessageId(
+                      selectedMessageId === message.id ? null : message.id
+                    )}
+                    className={cn(
+                      "max-w-[70%] p-3 rounded-2xl cursor-pointer transition-all",
+                      message.senderId === auth.currentUser?.uid
+                        ? "bg-gradient-to-r from-pink-500 to-purple-500 text-white rounded-tr-none hover:bg-gradient-to-r hover:from-pink-600 hover:to-purple-600"
+                        : "bg-white/80 backdrop-blur-sm text-gray-800 rounded-tl-none hover:bg-white"
+                    )}
+                  >
+                    <p>{message.text}</p>
+                  </div>
                 </div>
               </div>
-            </div>
-          ))}
+            ))
+          )}
           <div ref={messagesEndRef} />
         </div>
       </ScrollArea>
@@ -264,7 +306,7 @@ export default function ChatPage() {
           <div className="space-y-6 p-4">
             <div className="flex flex-col items-center">
               <Avatar className="h-24 w-24 border-4 border-pink-200">
-                <AvatarImage src={match?.photoURL} />
+                <AvatarImage src={getDisplayPicture()} />
                 <AvatarFallback className="bg-pink-100 text-pink-700 text-2xl">
                   {match?.name?.split(' ').map(n => n[0]).join('')}
                 </AvatarFallback>

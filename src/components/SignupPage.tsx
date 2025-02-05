@@ -8,6 +8,9 @@ import { getFirebaseErrorMessage } from '../utils/firebaseErrors';
 import ErrorAlert from './ErrorAlert';
 import { differenceInYears, parse } from 'date-fns';
 import { UserProfile } from '../types/user';
+import AvatarCreator from './AvatarCreator';
+import { Avatar, AvatarImage, AvatarFallback } from "./ui/avatar";
+import { Button } from "./ui/button";
 
 const SignupPage: React.FC = () => {
   const [firstName, setFirstName] = useState('');
@@ -21,6 +24,8 @@ const SignupPage: React.FC = () => {
   const [profilePic, setProfilePic] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [showAvatarCreator, setShowAvatarCreator] = useState(false);
+  const [avatar, setAvatar] = useState('');
   const navigate = useNavigate();
 
   const uploadProfilePic = async (file: File, userId: string) => {
@@ -48,6 +53,12 @@ const SignupPage: React.FC = () => {
     
     if (!isOver18(dateOfBirth)) {
       setError('You must be 18 or older to create an account.');
+      return;
+    }
+
+    if (!avatar) {
+      setError('Please create your avatar first');
+      setShowAvatarCreator(true);
       return;
     }
 
@@ -86,6 +97,7 @@ const SignupPage: React.FC = () => {
         interests: interests.split(',').map(interest => interest.trim()),
         occupation: '',
         education: '',
+        avatar,
         profilePicture: profilePicUrl,
         preferences: {
           ageRange: {
@@ -222,6 +234,22 @@ const SignupPage: React.FC = () => {
               required
             />
           </div>
+          <div className="space-y-2">
+            <label className="block text-sm font-medium text-gray-700">Your Avatar</label>
+            <div className="flex items-center space-x-4">
+              <Avatar className="w-20 h-20">
+                <AvatarImage src={avatar || '/placeholder.svg'} />
+                <AvatarFallback>😊</AvatarFallback>
+              </Avatar>
+              <Button
+                type="button"
+                onClick={() => setShowAvatarCreator(true)}
+                className="bg-gradient-to-r from-pink-400 to-purple-400"
+              >
+                {avatar ? 'Edit' : 'Create'} Avatar
+              </Button>
+            </div>
+          </div>
           <div className="file-input">
             <label htmlFor="profile-pic" className="block text-sm font-medium text-gray-700">Profile Picture</label>
             <input
@@ -248,6 +276,12 @@ const SignupPage: React.FC = () => {
           </Link>
         </p>
       </div>
+      <AvatarCreator
+        isOpen={showAvatarCreator}
+        onClose={() => setShowAvatarCreator(false)}
+        onSave={(url) => setAvatar(url)}
+        currentAvatar={avatar}
+      />
     </div>
   );
 };

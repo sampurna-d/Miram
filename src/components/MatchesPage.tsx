@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { collection, query, where, getDocs, orderBy, getDoc, doc as firestoreDoc, addDoc, serverTimestamp, onSnapshot, deleteDoc, doc } from 'firebase/firestore';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { collection, query, where, getDocs, orderBy, getDoc, doc as firestoreDoc, addDoc, serverTimestamp, onSnapshot, deleteDoc, doc, updateDoc, arrayUnion } from 'firebase/firestore';
 import { auth, db } from '../firebase';
 import { Search, Send, UserX, MessageSquare, ChevronDown, ChevronUp, MapPin, MessageCircle, MoreVertical, User, Shield, Flag } from 'lucide-react';
 import { useNavigate, useLocation } from 'react-router-dom';
@@ -17,6 +17,7 @@ import { matchService } from '../services/matches';
 import { Match } from '../types/match';
 import { UserProfile } from '../types/user'; // Import the existing type
 import { calculateAge } from '../utils/helpers';
+import { BITMOJI_THRESHOLD } from '../constants/app';
 
 interface Message {
   id: string;
@@ -79,7 +80,13 @@ export default function MatchesPage() {
   const messageCount = messages.length;
   const progress = Math.min(messageCount / 50, 1);
 
+  const shouldShowBitmoji = (messageCount: number) => {
+    return messageCount <= BITMOJI_THRESHOLD;
+  };
+
   useEffect(() => {
+    let isMounted = true;
+
     const fetchMatches = async () => {
       if (!auth.currentUser) {
         console.log("No authenticated user");
@@ -88,99 +95,31 @@ export default function MatchesPage() {
 
       setIsLoading(true);
       try {
-        console.log("Fetching matches for:", auth.currentUser.uid);
         const userMatches = await matchService.getMatches(auth.currentUser.uid);
-        console.log("Fetched matches:", userMatches);
-        
-        if (userMatches.length > 0) {
+        if (isMounted) {
           setMatches(userMatches);
-          setMatch(userMatches[0]); // Set the first match as current
-        } else {
-          console.log("No matches found");
+          if (userMatches.length > 0) {
+            setMatch(userMatches[0]);
+          }
         }
       } catch (err) {
         console.error("Error fetching matches:", err);
-        setError("Failed to load matches");
+        if (isMounted) {
+          setError("Failed to load matches");
+        }
       } finally {
-        setIsLoading(false);
+        if (isMounted) {
+          setIsLoading(false);
+        }
       }
     };
 
     fetchMatches();
-  }, []);
 
-  useEffect(() => {
-    const fetchMatch = async () => {
-      if (!auth.currentUser) {
-        console.log("No current user");
-        return;
-      }
-
-      try {
-        console.log("Fetching matches for user:", auth.currentUser.uid);
-        
-        const matchesRef = collection(db, 'matches');
-        const q = query(
-          matchesRef,
-          where('users', 'array-contains', auth.currentUser.uid)
-        );
-        
-        const querySnapshot = await getDocs(q);
-        console.log("Raw matches data:", querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-
-        if (!querySnapshot.empty) {
-          const matchData = querySnapshot.docs[0].data();
-          console.log("Match data:", matchData);
-          
-          // Find the other user's ID from the users array
-          const otherUserId = matchData.users.find((id: string) => id !== auth.currentUser?.uid);
-          console.log("Other user ID:", otherUserId);
-          
-          if (otherUserId) {
-            // Fetch the other user's details
-            const userDoc = await getDoc(doc(db, 'users', otherUserId));
-            console.log("Other user doc exists:", userDoc.exists());
-            
-            if (userDoc.exists()) {
-              const userData = userDoc.data() as UserProfile;
-              console.log("User data:", userData);
-              const matchInfo: Match = {
-                id: querySnapshot.docs[0].id,
-                name: `${userData.firstName} ${userData.lastName}`,
-                photoURL: userData.profilePicture || '/placeholder.svg',
-                lastMessage: matchData.lastMessage,
-                age: calculateAge(userData.dateOfBirth.toDate()),
-                interests: userData.interests || [],
-                bio: userData.bio || '',
-                location: matchData.location,
-
-                users: [auth.currentUser.uid, otherUserId] as [string, string],
-                createdAt: new Date(),
-                lastActivity: new Date()
-              };
-              console.log("Setting match info:", matchInfo);
-              setMatch(matchInfo);
-
-              // If coming from a "new match" state, show celebration
-              if (location.state?.newMatch) {
-                showMatchCelebration(matchInfo);
-              }
-            } else {
-              console.error("Could not find matched user document");
-            }
-          }
-        } else {
-          console.log("No matches found for user");
-          setMatch(null);
-        }
-      } catch (error) {
-        console.error("Error fetching match:", error);
-        setMatch(null);
-      }
+    return () => {
+      isMounted = false;
     };
-
-    fetchMatch();
-  }, [location.state]);
+  }, []);
 
   useEffect(() => {
     if (match) {
@@ -325,6 +264,41 @@ export default function MatchesPage() {
     console.log(`Reporting match: ${matchId}`);
   };
 
+  // Use useMemo for expensive computations
+  const sortedMatches = useMemo(() => {
+    return [...matches].sort((a, b) => 
+      b.lastActivity.getTime() - a.lastActivity.getTime()
+    );
+  }, [matches]);
+
+  const handleMatch = async (otherUserId: string) => {
+    if (!auth.currentUser) return;
+    
+    try {
+      const matchId = await matchService.createMatch(auth.currentUser.uid, otherUserId);
+      if (matchId) {
+        setIsNewMatch(true);
+        navigate(`/chat/${matchId}`, { state: { newMatch: true } });
+        
+        // Show match celebration
+        showMatchCelebration({
+          id: matchId,
+          name: selectedMatch?.name || '',
+          photoURL: selectedMatch?.photoURL || '',
+          avatar: selectedMatch?.avatar || '',
+          age: selectedMatch?.age || 0,
+          interests: selectedMatch?.interests || [],
+          bio: selectedMatch?.bio || '',
+          users: [auth.currentUser.uid, otherUserId],
+          createdAt: new Date(),
+          lastActivity: new Date()
+        });
+      }
+    } catch (error) {
+      console.error('Error creating match:', error);
+    }
+  };
+
   if (isLoading) {
     return <div>Loading...</div>;
   }
@@ -341,13 +315,13 @@ export default function MatchesPage() {
         </h1>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {match && (
+          {matches.map((match) => (
             <Card key={match.id} className="card-hover overflow-hidden group">
               <CardContent className="p-0">
                 <div className="relative">
                   <div className="aspect-[3/2] overflow-hidden">
                     <img
-                      src={match.photoURL}
+                      src={messageCount <= BITMOJI_THRESHOLD ? match.avatar : match.photoURL}
                       alt={match.name}
                       className="w-full h-full object-cover transform group-hover:scale-105 transition-transform duration-300"
                     />
@@ -427,7 +401,7 @@ export default function MatchesPage() {
                 </div>
               </CardContent>
             </Card>
-          )}
+          ))}
         </div>
 
         {/* Chat Dialog */}
@@ -471,7 +445,7 @@ export default function MatchesPage() {
                     >
                       {message.senderId !== auth.currentUser?.uid && (
                         <Avatar className="h-8 w-8 mr-2">
-                          <AvatarImage src={selectedMatch?.photoURL} />
+                          <AvatarImage src={shouldShowBitmoji(index) ? match?.avatar : match?.photoURL} />
                           <AvatarFallback className="bg-pink-100 text-pink-700">
                             {selectedMatch?.name?.split(' ').map(n => n[0]).join('')}
                           </AvatarFallback>

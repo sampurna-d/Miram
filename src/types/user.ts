@@ -26,4 +26,6 @@ export interface UserProfile {
     distance: number;
     showMe: boolean;
   };
+  bitmoji?: string;
+  avatar?: string;
 } 
