@@ -12,11 +12,16 @@ import { collection, query, where, getDocs, addDoc, deleteDoc, doc } from "fireb
 import { signOut } from "firebase/auth"
 import AnimatedCupid from "./AnimatedCat"
 import { useToast } from "./ui/use-toast"
+import { userService } from '../services/firebase'
+import { matchService } from '../services/matches'
+import { presenceService } from '../services/presence'
+import { UserProfile } from '../types/user'
+import { calculateAge, calculateDistance } from '../utils/helpers'
 
 export default function HomePage() {
   const navigate = useNavigate()
   const { toast } = useToast()
-  const [currentUser, setCurrentUser] = useState<any>(null)
+  const [currentUser, setCurrentUser] = useState<UserProfile | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [matchedUser, setMatchedUser] = useState<any>(() => {
     if (typeof window !== "undefined") {
@@ -31,6 +36,7 @@ export default function HomePage() {
   const [error, setError] = useState("")
   const [isThinking, setIsThinking] = useState(false)
   const [chatMessage, setChatMessage] = useState("")
+  const [potentialMatches, setPotentialMatches] = useState<UserProfile[]>([])
 
   useEffect(() => {
     const handleUnmatch = () => {
@@ -43,43 +49,112 @@ export default function HomePage() {
   }, [])
 
   useEffect(() => {
-    const unsubscribe = auth.onAuthStateChanged((user) => {
+    const unsubscribe = auth.onAuthStateChanged(async (user) => {
       if (user) {
-        const fetchUserData = async () => {
-          const userDoc = await getDocs(query(collection(db, "users"), where("email", "==", user.email)))
-          if (!userDoc.empty) {
-            setCurrentUser(userDoc.docs[0].data())
-          }
-          setIsLoading(false)
-        }
-        fetchUserData()
-      } else {
-        setIsLoading(false)
-        navigate("/login")
-      }
-    })
+        try {
+          console.log("Current user:", user.email);
+          const userDoc = await getDocs(
+            query(
+              collection(db, "users"), 
+              where("email", "==", user.email || "")
+            )
+          );
 
-    return () => unsubscribe()
-  }, [navigate])
+          if (!userDoc.empty) {
+            const userData = userDoc.docs[0].data() as UserProfile;
+            const userId = userDoc.docs[0].id;
+            
+            // Ensure all required fields exist
+            const currentUser: UserProfile = {
+              ...userData,
+              id: userId,
+              matches: userData.matches || [],
+              blockedUsers: userData.blockedUsers || [],
+              preferences: userData.preferences || {
+                ageRange: { min: 18, max: 100 },
+                distance: 100,
+                showMe: true
+              }
+            };
+
+            setCurrentUser(currentUser);
+            
+            // Start tracking presence
+            if (userId) {
+              presenceService.trackPresence(userId);
+            }
+
+            // Only fetch matches if we have a valid user with preferences
+            if (currentUser.preferences) {
+              try {
+                const matches = await userService.findMatches(currentUser);
+                console.log("Found potential matches:", matches);
+                setPotentialMatches(matches);
+              } catch (error) {
+                console.error("Error fetching matches:", error);
+                toast({
+                  title: "Error",
+                  description: "Failed to fetch potential matches",
+                  variant: "destructive",
+                });
+              }
+            }
+          } else {
+            console.error("No user document found for email:", user.email);
+            toast({
+              title: "Error",
+              description: "User profile not found",
+              variant: "destructive",
+            });
+          }
+        } catch (error) {
+          console.error("Error fetching user data:", error);
+          toast({
+            title: "Error",
+            description: "Failed to load user profile",
+            variant: "destructive",
+          });
+        } finally {
+          setIsLoading(false);
+        }
+      } else {
+        setIsLoading(false);
+        navigate("/login");
+      }
+    });
+
+    return () => unsubscribe();
+  }, [navigate]);
 
   useEffect(() => {
     const verifyMatch = async () => {
-      if (!matchedUser || !auth.currentUser) return
+      if (!matchedUser?.id || !auth.currentUser?.uid) return;
 
-      const matchesRef = collection(db, "matches")
-      const q = query(matchesRef, where("users", "array-contains", auth.currentUser.uid))
+      try {
+        console.log("Verifying match for users:", auth.currentUser.uid, matchedUser.id);
+        const matches = await matchService.getMatches(auth.currentUser.uid);
+        
+        const matchExists = matches.some(match => 
+          match.users.includes(matchedUser.id)
+        );
 
-      const querySnapshot = await getDocs(q)
-
-      if (querySnapshot.empty) {
-        console.log("No match found in database, clearing local state")
-        setMatchedUser(null)
-        localStorage.removeItem("matchedUser")
+        if (!matchExists) {
+          console.log("No valid match found, clearing local state");
+          setMatchedUser(null);
+          localStorage.removeItem("matchedUser");
+        }
+      } catch (error) {
+        console.error("Error verifying match:", error);
+        toast({
+          title: "Error",
+          description: "Failed to verify match status",
+          variant: "destructive",
+        });
       }
-    }
+    };
 
-    verifyMatch()
-  }, [matchedUser])
+    verifyMatch();
+  }, [matchedUser]);
 
   const handleLogout = async () => {
     try {
@@ -105,129 +180,149 @@ export default function HomePage() {
         throw new Error("Invalid user IDs for match creation")
       }
 
-      const matchDoc = await addDoc(collection(db, "matches"), {
-        users: [auth.currentUser.uid, matchedUser.id],
-        timestamp: new Date(),
-        lastMessage: null,
-        createdAt: new Date(),
-        lastActivity: new Date(),
+      const matchId = await matchService.createMatch(auth.currentUser.uid, matchedUser.id)
+
+      const matchedUserData = {
+        id: matchedUser.id,
+        name: `${matchedUser.firstName} ${matchedUser.lastName}`,
+        interests: matchedUser.interests,
+      }
+      setMatchedUser(matchedUserData)
+      setNoMatchFound(false)
+      localStorage.setItem("matchedUser", JSON.stringify(matchedUserData))
+
+      navigate("/matches", {
+        state: {
+          newMatch: true,
+          matchedUserId: matchedUser.id,
+        },
       })
 
-      return matchDoc.id
+      toast({
+        title: "Match found!",
+        description: `You've matched with ${matchedUser.firstName}!`,
+      })
     } catch (error) {
-      console.error("Error creating match:", error)
-      if (error instanceof Error) {
-        if (error.message.includes("permission")) {
-          throw new Error("Unable to create match due to permissions. Please try again.")
-        }
-      }
-      throw error
+      console.error("Error in match creation:", error)
+      setError(error instanceof Error ? error.message : "Failed to create match")
+      setMatchedUser(null)
+      localStorage.removeItem("matchedUser")
     }
   }
 
   const startMatching = async () => {
-    setIsMatching(true)
-    setError("")
+    if (!currentUser) {
+      toast({
+        title: "Error",
+        description: "User profile not loaded",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setIsMatching(true);
+    setError("");
+    
     try {
-      const usersRef = collection(db, "users")
-      const q = query(usersRef, where("email", "!=", auth.currentUser?.email))
-      const querySnapshot = await getDocs(q)
+      console.log("Starting matching process for user:", currentUser.id);
+      
+      // Fetch potential matches
+      const matches = await userService.findMatches(currentUser);
+      console.log("Potential matches found:", matches.length);
 
-      const potentialMatches = querySnapshot.docs.map((doc) => ({
-        id: doc.id,
-        ...doc.data(),
-      })) as Array<{ id: string; interests: string[]; firstName: string; lastName: string }>
-
-      const match = potentialMatches.reduce(
-        (bestMatch, user) => {
-          const commonInterests =
-            user.interests?.filter((interest: string) => currentUser.interests?.includes(interest)) || []
-          if (commonInterests.length > (bestMatch?.commonInterests?.length || 0)) {
-            return { ...user, commonInterests }
-          }
-          return bestMatch
-        },
-        null as ((typeof potentialMatches)[0] & { commonInterests: string[] }) | null,
-      )
-
-      if (match) {
-        try {
-          const matchId = await createMatch(match)
-
-          const matchedUserData = {
-            id: match.id,
-            name: `${match.firstName} ${match.lastName}`,
-            interests: match.interests,
-          }
-          setMatchedUser(matchedUserData)
-          setNoMatchFound(false)
-          localStorage.setItem("matchedUser", JSON.stringify(matchedUserData))
-
-          navigate("/matches", {
-            state: {
-              newMatch: true,
-              matchedUserId: match.id,
-            },
-          })
-
-          toast({
-            title: "Match found!",
-            description: `You've matched with ${match.firstName}!`,
-          })
-        } catch (error) {
-          console.error("Error in match creation:", error)
-          setError(error instanceof Error ? error.message : "Failed to create match")
-          setMatchedUser(null)
-          localStorage.removeItem("matchedUser")
-        }
-      } else {
-        setMatchedUser(null)
-        setNoMatchFound(true)
-        localStorage.removeItem("matchedUser")
+      if (matches.length === 0) {
+        setMatchedUser(null);
+        setNoMatchFound(true);
+        localStorage.removeItem("matchedUser");
         toast({
-          title: "No match found",
-          description: "Try again later!",
+          title: "No matches found",
+          description: "Try adjusting your preferences or try again later!",
           variant: "destructive",
-        })
+        });
+        return;
+      }
+
+      // Filter and score matches
+      const scoredMatches = matches.map(user => {
+        const commonInterests = user.interests?.filter(
+          interest => currentUser.interests?.includes(interest)
+        ) || [];
+
+        const ageMatch = Math.abs(
+          calculateAge(currentUser.dateOfBirth.toDate()) - 
+          calculateAge(user.dateOfBirth.toDate())
+        );
+
+        const distance = calculateDistance(currentUser.location, user.location);
+
+        // Calculate match score (higher is better)
+        const score = (
+          (commonInterests.length * 10) + // Each common interest is worth 10 points
+          (100 - ageMatch) + // Closer age = more points
+          (100 - distance) // Closer distance = more points
+        );
+
+        return { ...user, score, commonInterests };
+      });
+
+      // Sort by score and get the best match
+      const bestMatch = scoredMatches.sort((a, b) => b.score - a.score)[0];
+      console.log("Best match found:", bestMatch);
+
+      if (bestMatch) {
+        await createMatch(bestMatch);
+      } else {
+        setMatchedUser(null);
+        setNoMatchFound(true);
+        localStorage.removeItem("matchedUser");
+        toast({
+          title: "No suitable matches",
+          description: "Try adjusting your preferences!",
+          variant: "destructive",
+        });
       }
     } catch (error) {
-      console.error("Error finding match:", error)
-      setError("Failed to find a match. Please try again.")
+      console.error("Error in matching process:", error);
+      setError("Failed to find a match. Please try again.");
+      toast({
+        title: "Error",
+        description: "Failed to find matches. Please try again.",
+        variant: "destructive",
+      });
     } finally {
-      setIsMatching(false)
+      setIsMatching(false);
     }
-  }
+  };
 
   const handleUnmatch = async () => {
     try {
-      if (!auth.currentUser) return
+      if (!auth.currentUser || !matchedUser?.id) return;
 
-      const matchesRef = collection(db, "matches")
-      const q = query(matchesRef, where("users", "array-contains", auth.currentUser.uid))
+      // Get the match document
+      const matches = await matchService.getMatches(auth.currentUser.uid);
+      const match = matches.find(m => m.users.includes(matchedUser.id));
+      
+      if (match) {
+        await matchService.unmatch(match.id, auth.currentUser.uid, matchedUser.id);
+        
+        setMatchedUser(null);
+        localStorage.removeItem("matchedUser");
+        window.dispatchEvent(new Event("unmatch"));
 
-      const querySnapshot = await getDocs(q)
-
-      if (!querySnapshot.empty) {
-        await deleteDoc(doc(db, "matches", querySnapshot.docs[0].id))
+        toast({
+          title: "Unmatched successfully",
+          description: "Ready to find a new match!",
+        });
       }
-
-      setMatchedUser(null)
-      localStorage.removeItem("matchedUser")
-      window.dispatchEvent(new Event("unmatch"))
-
-      toast({
-        title: "Unmatched successfully",
-        description: "Ready to find a new match!",
-      })
     } catch (error) {
-      console.error("Error unmatching:", error)
+      console.error("Error unmatching:", error);
       toast({
         title: "Error unmatching",
         description: "Please try again",
         variant: "destructive",
-      })
+      });
     }
-  }
+  };
 
   const handleCupidClick = () => {
     setIsChatOpen(!isChatOpen)

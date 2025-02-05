@@ -2,6 +2,7 @@ import { initializeApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
 import { getStorage } from 'firebase/storage';
+import { getDatabase } from 'firebase/database';
 
 const firebaseConfig = {
     apiKey: "AIzaSyDij_1BrwKQgFUQ7o-Lbgsu3GfbcSncI4U",
@@ -10,10 +11,12 @@ const firebaseConfig = {
     storageBucket: "cupid-s-arrow-f6d0d.appspot.com",
     messagingSenderId: "668710379392",
     appId: "1:668710379392:web:d85fef41c2ef03d34aab65",
-    measurementId: "G-CJ9JSS45H4"
-  };
+    measurementId: "G-CJ9JSS45H4",
+    databaseURL: "https://cupid-s-arrow-f6d0d-default-rtdb.firebaseio.com"
+};
 
 const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 export const db = getFirestore(app);
 export const storage = getStorage(app);
+export const rtdb = getDatabase(app);

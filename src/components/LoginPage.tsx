@@ -4,6 +4,10 @@ import { signInWithEmailAndPassword } from 'firebase/auth';
 import { auth } from '../firebase';
 import { getFirebaseErrorMessage } from '../utils/firebaseErrors';
 import ErrorAlert from './ErrorAlert';
+import { FirebaseError } from 'firebase/app';
+import { UserProfile } from '../types/user';
+import { getDoc, doc } from 'firebase/firestore';
+import { db } from '../firebase';
 
 const LoginPage: React.FC = () => {
   const [email, setEmail] = useState('');
@@ -18,11 +22,19 @@ const LoginPage: React.FC = () => {
     setError('');
     
     try {
-      await signInWithEmailAndPassword(auth, email, password);
+      const userCredential = await signInWithEmailAndPassword(auth, email, password);
+      
+      // Optionally fetch user profile data
+      const userDoc = await getDoc(doc(db, 'users', userCredential.user.uid));
+      if (userDoc.exists()) {
+        const userData = userDoc.data() as UserProfile;
+        // You can store the user data in context or state if needed
+      }
+      
       navigate('/home');
-    } catch (error: any) {
+    } catch (error) {
       console.error('Login error:', error);
-      if (error.code) {
+      if (error instanceof FirebaseError) {
         setError(getFirebaseErrorMessage(error.code));
       } else if (error instanceof Error) {
         setError(error.message);
@@ -48,7 +60,7 @@ const LoginPage: React.FC = () => {
               id="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-pink-500 focus:border-pink-500"
+              className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-xl shadow-sm focus:outline-none focus:ring-pink-500 focus:border-pink-500"
               required
             />
           </div>
@@ -59,13 +71,13 @@ const LoginPage: React.FC = () => {
               id="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-pink-500 focus:border-pink-500"
+              className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-xl shadow-sm focus:outline-none focus:ring-pink-500 focus:border-pink-500"
               required
             />
           </div>
           <button
             type="submit"
-            className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-pink-600 hover:bg-pink-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-pink-500"
+            className="w-full flex justify-center py-2 px-4 border border-transparent rounded-xl shadow-sm text-sm font-medium text-white bg-gradient-to-r from-pink-500 to-purple-500 hover:from-pink-600 hover:to-purple-600"
           >
             Sign In
           </button>

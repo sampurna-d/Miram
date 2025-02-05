@@ -1,0 +1,47 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    
+    function isOwner(userId) {
+      return request.auth.uid == userId;
+    }
+    
+    function isInMatch(matchData) {
+      return request.auth.uid in matchData.users;
+    }
+
+    // Users collection
+    match /users/{userId} {
+      allow read: if isSignedIn();
+      allow create: if isOwner(userId);
+      allow update: if isSignedIn() && (
+        // Allow users to update their own profile
+        isOwner(userId) ||
+        // Allow other users to update matches array when matching
+        (
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['matches']) &&
+          request.resource.data.matches.size() == resource.data.matches.size() + 1
+        )
+      );
+      allow delete: if isOwner(userId);
+    }
+    
+    // Matches collection
+    match /matches/{matchId} {
+      allow create: if isSignedIn();
+      allow read: if isSignedIn();  // Allow any signed-in user to read matches
+      allow update: if isSignedIn() && isInMatch(resource.data);
+      allow delete: if isSignedIn() && isInMatch(resource.data);
+    }
+    
+    // Messages collection
+    match /messages/{messageId} {
+      allow create: if isSignedIn();
+      allow read: if isSignedIn();
+    }
+  }
+} 

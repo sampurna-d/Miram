@@ -12,6 +12,7 @@ import ContactFAQ from './components/ContactFAQ';
 import { Toaster } from './components/ui/toaster';
 import PrivateRoute from './components/PrivateRoute';
 import Profile from './components/Profile';
+import ChatPage from './components/ChatPage';
 
 function App() {
   return (
@@ -28,6 +29,7 @@ function App() {
               <Route index element={<HomePage />} />
               <Route path="/home" element={<HomePage />} />
               <Route path="/matches" element={<MatchesPage />} />
+              <Route path="/chat/:matchId" element={<ChatPage />} />
               <Route path="/profile" element={<Profile />} />
               
               {/* Settings Routes */}
