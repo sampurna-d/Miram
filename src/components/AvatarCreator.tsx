@@ -4,6 +4,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
 import { Button } from "./ui/button";
 import { Label } from "./ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
+import { ScrollArea } from "./ui/scroll-area";
 
 interface AvatarFeatures {
   topType: string;
@@ -26,9 +27,63 @@ interface AvatarCreatorProps {
 }
 
 const AVATAR_OPTIONS = {
-  topType: ['NoHair', 'Eyepatch', 'Hat', 'Hijab', 'LongHairBigHair', 'LongHairBob'],
-  hairColor: ['Auburn', 'Black', 'Blonde', 'BlondeGolden', 'Brown', 'BrownDark'],
-  facialHairType: ['Blank', 'BeardMedium', 'BeardLight', 'BeardMajestic', 'MoustacheFancy'],
+  topType: [
+    'NoHair',
+    'Eyepatch',
+    'Hat',
+    'Hijab',
+    'Turban',
+    'WinterHat1',
+    'WinterHat2',
+    'WinterHat3',
+    'WinterHat4',
+    'LongHairBigHair',
+    'LongHairBob',
+    'LongHairBun',
+    'LongHairCurly',
+    'LongHairCurvy',
+    'LongHairDreads',
+    'LongHairFrida',
+    'LongHairFro',
+    'LongHairFroBand',
+    'LongHairNotTooLong',
+    'LongHairShavedSides',
+    'LongHairMiaWallace',
+    'LongHairStraight',
+    'LongHairStraight2',
+    'LongHairStraightStrand',
+    'ShortHairDreads01',
+    'ShortHairDreads02',
+    'ShortHairFrizzle',
+    'ShortHairShaggyMullet',
+    'ShortHairShortCurly',
+    'ShortHairShortFlat',
+    'ShortHairShortRound',
+    'ShortHairShortWaved',
+    'ShortHairSides',
+    'ShortHairTheCaesar',
+    'ShortHairTheCaesarSidePart'
+  ],
+  hairColor: [
+    'Auburn',
+    'Black',
+    'Blonde',
+    'BlondeGolden',
+    'Brown',
+    'BrownDark',
+    'PastelPink',
+    'Platinum',
+    'Red',
+    'SilverGray'
+  ],
+  facialHairType: [
+    'Blank',
+    'BeardMedium',
+    'BeardLight',
+    'BeardMajestic',
+    'MoustacheFancy',
+    'MoustacheMagnum'
+  ],
   accessoriesType: ['Blank', 'Kurt', 'Prescription01', 'Prescription02', 'Round', 'Sunglasses'],
   clotheType: ['BlazerShirt', 'BlazerSweater', 'CollarSweater', 'GraphicShirt', 'Hoodie'],
   clotheColor: ['Black', 'Blue01', 'Blue02', 'Blue03', 'Gray01', 'Gray02', 'Heather'],
@@ -237,16 +292,22 @@ function FeatureSelect({ label, value, options, onChange }: {
         <SelectTrigger className="w-full rounded-xl border-gray-200 focus:border-pink-500 focus:ring-pink-200 transition-shadow bg-white">
           <SelectValue />
         </SelectTrigger>
-        <SelectContent className="rounded-xl border-gray-200 bg-white/95 backdrop-blur-sm shadow-lg">
-          {options.map(option => (
-            <SelectItem 
-              key={option} 
-              value={option}
-              className="rounded-lg hover:bg-pink-50 focus:bg-pink-100 focus:text-pink-800 text-sm md:text-base"
-            >
-              {option.replace(/([A-Z])/g, ' $1').trim()}
-            </SelectItem>
-          ))}
+        <SelectContent 
+          className="rounded-xl border-gray-200 bg-white/95 backdrop-blur-sm shadow-lg max-h-[200px] overflow-y-auto"
+          align="center"
+          side="top"
+        >
+          <div className="p-2">
+            {options.map(option => (
+              <SelectItem 
+                key={option} 
+                value={option}
+                className="rounded-lg hover:bg-pink-50 focus:bg-pink-100 focus:text-pink-800 text-sm md:text-base my-1"
+              >
+                {option.replace(/([A-Z])/g, ' $1').trim()}
+              </SelectItem>
+            ))}
+          </div>
         </SelectContent>
       </Select>
     </div>

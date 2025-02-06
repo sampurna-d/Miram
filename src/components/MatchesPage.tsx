@@ -18,6 +18,7 @@ import { Match } from '../types/match';
 import { UserProfile } from '../types/user'; // Import the existing type
 import { calculateAge } from '../utils/helpers';
 import { BITMOJI_THRESHOLD } from '../constants/app';
+import { Skeleton } from "./ui/skeleton";
 
 interface Message {
   id: string;
@@ -300,7 +301,13 @@ export default function MatchesPage() {
   };
 
   if (isLoading) {
-    return <div>Loading...</div>;
+    return (
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 p-4">
+        {[1, 2, 3, 4, 5, 6].map((i) => (
+          <Skeleton key={i} className="h-[300px] rounded-xl" />
+        ))}
+      </div>
+    );
   }
 
   if (error) {

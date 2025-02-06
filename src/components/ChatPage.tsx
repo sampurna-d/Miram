@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, Suspense } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { collection, query, where, orderBy, onSnapshot, addDoc, serverTimestamp, doc, getDoc, limit } from 'firebase/firestore';
 import { auth, db } from '../firebase';
@@ -13,6 +13,7 @@ import { UserProfile } from '../types/user';
 import { calculateAge } from '../utils/helpers';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "./ui/dialog";
 import { BITMOJI_THRESHOLD } from '../constants/app';
+import { Skeleton } from "./ui/skeleton";
 
 interface Message {
   id: string;
@@ -22,6 +23,9 @@ interface Message {
   timestamp: any;
   isRead?: boolean;
 }
+
+// Lazy load the ChatBackground
+const ChatBackground = React.lazy(() => import('./ChatBackground'));
 
 export default function ChatPage() {
   const { matchId } = useParams();
@@ -34,68 +38,77 @@ export default function ChatPage() {
   const inputRef = useRef<HTMLInputElement>(null);
   const [isUserInfoOpen, setIsUserInfoOpen] = useState(false);
   const [messageCount, setMessageCount] = useState(0);
+  const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    const fetchMatch = async () => {
+    let unsubscribeMessages: (() => void) | undefined;
+    
+    const fetchData = async () => {
       if (!matchId || !auth.currentUser) return;
 
-      const matchDoc = await getDoc(doc(db, 'matches', matchId));
-      if (!matchDoc.exists()) {
-        navigate('/matches');
-        return;
-      }
+      try {
+        // Fetch match and user data in parallel
+        const [matchDoc, messagesQuery] = await Promise.all([
+          getDoc(doc(db, 'matches', matchId)),
+          query(
+            collection(db, 'messages'),
+            where('matchId', '==', matchId),
+            orderBy('timestamp', 'asc')
+          )
+        ]);
 
-      const matchData = matchDoc.data();
-      const otherUserId = matchData.users.find((id: string) => id !== auth.currentUser?.uid);
-      
-      if (otherUserId) {
-        const userDoc = await getDoc(doc(db, 'users', otherUserId));
-        if (userDoc.exists()) {
-          const userData = userDoc.data() as UserProfile;
-          setMatch({
-            id: matchDoc.id,
-            name: `${userData.firstName} ${userData.lastName}`,
-            photoURL: userData.profilePicture || '/placeholder.svg',
-            avatar: userData.avatar || '/placeholder.svg',
-            age: calculateAge(userData.dateOfBirth.toDate()),
-            interests: userData.interests || [],
-            bio: userData.bio || '',
-            location: userData.location || '',
-            users: matchData.users,
-            createdAt: matchData.createdAt,
-            lastActivity: matchData.lastActivity
-          } as Match);
+        if (!matchDoc.exists()) {
+          navigate('/matches');
+          return;
         }
+
+        const matchData = matchDoc.data();
+        const otherUserId = matchData.users.find((id: string) => id !== auth.currentUser?.uid);
+
+        if (otherUserId) {
+          const userDoc = await getDoc(doc(db, 'users', otherUserId));
+          if (userDoc.exists()) {
+            const userData = userDoc.data() as UserProfile;
+            setMatch({
+              id: matchDoc.id,
+              name: `${userData.firstName} ${userData.lastName}`,
+              photoURL: userData.profilePicture || '/placeholder.svg',
+              avatar: userData.avatar || '/placeholder.svg',
+              age: calculateAge(userData.dateOfBirth.toDate()),
+              interests: userData.interests || [],
+              bio: userData.bio || '',
+              location: userData.location || '',
+              users: matchData.users,
+              createdAt: matchData.createdAt,
+              lastActivity: matchData.lastActivity
+            } as Match);
+          }
+        }
+
+        // Set up messages listener after initial data is loaded
+        unsubscribeMessages = onSnapshot(messagesQuery, (snapshot) => {
+          const newMessages = snapshot.docs.map(doc => ({
+            id: doc.id,
+            ...doc.data()
+          })) as Message[];
+          setMessages(newMessages);
+        });
+
+        setIsLoading(false);
+      } catch (error) {
+        console.error('Error loading chat:', error);
+        setIsLoading(false);
       }
     };
 
-    fetchMatch();
+    fetchData();
+
+    return () => {
+      if (unsubscribeMessages) {
+        unsubscribeMessages();
+      }
+    };
   }, [matchId, navigate]);
-
-  useEffect(() => {
-    if (!matchId || !auth.currentUser) return;
-
-    const messagesRef = collection(db, 'messages');
-    const q = query(
-      messagesRef,
-      where('matchId', '==', matchId),
-      orderBy('timestamp', 'asc')
-    );
-
-    console.log('Setting up messages listener for matchId:', matchId);
-
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const newMessages = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      })) as Message[];
-      
-      console.log('Received messages:', newMessages);
-      setMessages(newMessages);
-    });
-
-    return () => unsubscribe();
-  }, [matchId]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -158,8 +171,15 @@ export default function ChatPage() {
       : (match?.photoURL || '/placeholder.svg');
   };
 
+  if (isLoading) {
+    return <ChatPageSkeleton />;
+  }
+
   return (
-    <div className="flex flex-col h-screen bg-gradient-to-b from-pink-50 to-purple-50">
+    <div className="relative flex flex-col h-screen bg-gradient-to-b from-pink-50 to-purple-50">
+      <Suspense fallback={null}>
+        <ChatBackground chatCount={messages.length} />
+      </Suspense>
       {/* Chat Header */}
       <div className="p-4 border-b border-pink-100 bg-white/50 backdrop-blur-sm">
         <div className="max-w-4xl mx-auto flex items-center justify-between">
@@ -344,6 +364,20 @@ export default function ChatPage() {
           </div>
         </DialogContent>
       </Dialog>
+    </div>
+  );
+}
+
+function ChatPageSkeleton() {
+  return (
+    <div className="flex flex-col h-screen bg-gradient-to-b from-pink-50 to-purple-50">
+      <div className="p-4 border-b border-pink-100 bg-white/50">
+        <Skeleton className="h-12 w-12 rounded-full" />
+      </div>
+      <div className="flex-1 p-4">
+        <Skeleton className="h-20 w-3/4 rounded-xl mb-4" />
+        <Skeleton className="h-20 w-2/3 rounded-xl" />
+      </div>
     </div>
   );
 } 
