@@ -14,7 +14,12 @@ import { calculateAge } from '../utils/helpers';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "./ui/dialog";
 import { BITMOJI_THRESHOLD } from '../constants/app';
 import { Skeleton } from "./ui/skeleton";
+import { useAvatar } from '../contexts/AvatarContext';
+import { CupidAI } from './CupidAI';
 
+/**
+ * Interface for chat message structure
+ */
 interface Message {
   id: string;
   matchId: string;
@@ -24,22 +29,41 @@ interface Message {
   isRead?: boolean;
 }
 
-// Lazy load the ChatBackground
+// Lazy load the ChatBackground for better performance
 const ChatBackground = React.lazy(() => import('./ChatBackground'));
 
-export default function ChatPage() {
+/**
+ * ChatPage Component
+ * 
+ * Renders a chat interface between matched users with features like:
+ * - Real-time messaging
+ * - Progressive avatar reveal
+ * - Dynamic background morphing
+ * - User profile viewing
+ * 
+ * @component
+ */
+export default function ChatPage(): JSX.Element {
+  // State and hooks
   const { matchId } = useParams();
   const navigate = useNavigate();
   const [match, setMatch] = useState<Match | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [newMessage, setNewMessage] = useState('');
   const [selectedMessageId, setSelectedMessageId] = useState<string | null>(null);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
   const [isUserInfoOpen, setIsUserInfoOpen] = useState(false);
   const [messageCount, setMessageCount] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
+  const [showAvatar, setShowAvatar] = useState(true);
+  const { setMessageCount: avatarContextSetMessageCount } = useAvatar();
 
+  // Refs for DOM manipulation
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  /**
+   * Fetch match data and set up real-time message listener
+   */
   useEffect(() => {
     let unsubscribeMessages: (() => void) | undefined;
     
@@ -47,7 +71,7 @@ export default function ChatPage() {
       if (!matchId || !auth.currentUser) return;
 
       try {
-        // Fetch match and user data in parallel
+        // Fetch match and user data in parallel for better performance
         const [matchDoc, messagesQuery] = await Promise.all([
           getDoc(doc(db, 'matches', matchId)),
           query(
@@ -85,7 +109,7 @@ export default function ChatPage() {
           }
         }
 
-        // Set up messages listener after initial data is loaded
+        // Set up real-time message listener
         unsubscribeMessages = onSnapshot(messagesQuery, (snapshot) => {
           const newMessages = snapshot.docs.map(doc => ({
             id: doc.id,
@@ -110,10 +134,31 @@ export default function ChatPage() {
     };
   }, [matchId, navigate]);
 
+  /**
+   * Auto-scroll to bottom when new messages arrive
+   */
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
+  /**
+   * Update avatar display based on message count
+   */
+  useEffect(() => {
+    setShowAvatar(messages.length <= BITMOJI_THRESHOLD);
+  }, [messages.length]);
+
+  /**
+   * Update message count in avatar context
+   */
+  useEffect(() => {
+    setMessageCount(messages.length);
+    avatarContextSetMessageCount(messages.length);
+  }, [messages.length, avatarContextSetMessageCount]);
+
+  /**
+   * Send a new message
+   */
   const handleSendMessage = async () => {
     if (!newMessage.trim() || !matchId || !auth.currentUser) return;
 
@@ -125,8 +170,6 @@ export default function ChatPage() {
         timestamp: serverTimestamp(),
         isRead: false
       };
-
-      console.log('Sending message:', messageData);
       
       await addDoc(collection(db, 'messages'), messageData);
       setNewMessage('');
@@ -136,7 +179,10 @@ export default function ChatPage() {
     }
   };
 
-  const formatMessageDate = (timestamp: any) => {
+  /**
+   * Format message timestamp for display
+   */
+  const formatMessageDate = (timestamp: any): string => {
     if (!timestamp) return '';
     const date = timestamp.toDate();
     return date.toLocaleTimeString([], { 
@@ -145,7 +191,10 @@ export default function ChatPage() {
     });
   };
 
-  const shouldShowTimestamp = (message: Message, index: number) => {
+  /**
+   * Determine if timestamp should be shown for a message
+   */
+  const shouldShowTimestamp = (message: Message, index: number): boolean => {
     if (selectedMessageId === message.id) return true;
     if (index === 0) return true;
     
@@ -158,17 +207,31 @@ export default function ChatPage() {
     return (currentTime.getTime() - prevTime.getTime()) > 5 * 60 * 1000;
   };
 
-  const shouldShowAvatar = (messageIndex: number) => {
-    const previousMessages = messages.slice(0, messageIndex + 1);
-    const count = previousMessages.filter(m => m.senderId !== auth.currentUser?.uid).length;
-    return count <= BITMOJI_THRESHOLD;
+  /**
+   * Determine if avatar should be shown for a message
+   */
+  const shouldShowAvatar = (messageIndex: number): boolean => {
+    const previousMessages = messages
+      .slice(0, messageIndex + 1)
+      .filter(m => m.senderId === messages[messageIndex].senderId);
+    
+    return previousMessages.length <= BITMOJI_THRESHOLD;
   };
 
-  const getDisplayPicture = () => {
-    const totalMessages = messages.length;
-    return totalMessages <= BITMOJI_THRESHOLD 
+  /**
+   * Get the appropriate display picture based on message count
+   */
+  const getDisplayPicture = (): string => {
+    return showAvatar 
       ? (match?.avatar || '/placeholder.svg')
       : (match?.photoURL || '/placeholder.svg');
+  };
+
+  /**
+   * Handle Cupid AI messages
+   */
+  const handleCupidMessage = (message: string): void => {
+    console.log('Cupid says:', message);
   };
 
   if (isLoading) {
@@ -177,6 +240,7 @@ export default function ChatPage() {
 
   return (
     <div className="relative flex flex-col h-screen bg-gradient-to-b from-pink-50 to-purple-50">
+      <CupidAI onMessage={handleCupidMessage} />
       <Suspense fallback={null}>
         <ChatBackground chatCount={messages.length} />
       </Suspense>
@@ -234,27 +298,22 @@ export default function ChatPage() {
             </div>
           ) : (
             messages.map((message, index) => (
-              <div key={message.id} className="space-y-2">
+              <div key={message.id} className="flex flex-col space-y-1 px-2">
                 {shouldShowTimestamp(message, index) && (
-                  <div className="flex justify-center">
+                  <div className="flex justify-center my-2">
                     <span className="text-xs text-gray-500 bg-white/80 px-3 py-1.5 rounded-full shadow-sm">
                       {formatMessageDate(message.timestamp)}
                     </span>
                   </div>
                 )}
-                <div
-                  className={cn(
-                    "flex",
-                    message.senderId === auth.currentUser?.uid ? "justify-end" : "justify-start"
-                  )}
-                >
+                <div className={cn("flex", message.senderId === auth.currentUser?.uid ? "justify-end" : "justify-start")}>
                   {message.senderId !== auth.currentUser?.uid && (
-                    <Avatar className="h-8 w-8">
+                    <Avatar className="h-8 w-8 mr-2 flex-shrink-0">
                       <AvatarImage 
                         src={shouldShowAvatar(index) ? match?.avatar : match?.photoURL} 
-                        alt={match?.name}
+                        alt={match?.name} 
                       />
-                      <AvatarFallback>{match?.name[0]}</AvatarFallback>
+                      <AvatarFallback>{match?.name?.[0]}</AvatarFallback>
                     </Avatar>
                   )}
                   <div
@@ -368,7 +427,10 @@ export default function ChatPage() {
   );
 }
 
-function ChatPageSkeleton() {
+/**
+ * Loading skeleton for ChatPage
+ */
+function ChatPageSkeleton(): JSX.Element {
   return (
     <div className="flex flex-col h-screen bg-gradient-to-b from-pink-50 to-purple-50">
       <div className="p-4 border-b border-pink-100 bg-white/50">

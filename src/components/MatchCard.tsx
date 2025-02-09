@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Avatar, AvatarImage, AvatarFallback } from "./ui/avatar";
 import { Card } from "./ui/card";
 import { Match } from '../types/match';
@@ -11,26 +11,45 @@ interface MatchCardProps {
   onClick: () => void;
 }
 
+/**
+ * MatchCard Component
+ * Displays a user match with optimized image loading
+ */
 export default function MatchCard({ match, messageCount, onClick }: MatchCardProps) {
-  const [imageLoaded, setImageLoaded] = useState(false);
-  const [currentImage, setCurrentImage] = useState('');
+  const [avatarLoaded, setAvatarLoaded] = useState(false);
+  const [photoLoaded, setPhotoLoaded] = useState(false);
+  const showAvatar = useMemo(() => messageCount <= BITMOJI_THRESHOLD, [messageCount]);
+  
+  // Determine which image to show based on load state and message count
+  const displayImage = useMemo(() => {
+    if (showAvatar) {
+      return avatarLoaded ? match.avatar : undefined;
+    }
+    return photoLoaded ? match.photoURL : undefined;
+  }, [showAvatar, avatarLoaded, photoLoaded, match]);
 
+  // Preload both images immediately
   useEffect(() => {
-    // Preload both images
-    const avatar = new Image();
-    const photo = new Image();
-    
-    avatar.src = match.avatar;
-    photo.src = match.photoURL;
+    const preloadImage = (src: string, onLoad: () => void) => {
+      const img = new Image();
+      img.onload = onLoad;
+      img.src = src;
+    };
 
-    const displayImage = messageCount <= BITMOJI_THRESHOLD ? match.avatar : match.photoURL;
-    setCurrentImage(displayImage);
+    if (match.avatar) {
+      preloadImage(match.avatar, () => setAvatarLoaded(true));
+    }
+    if (match.photoURL) {
+      preloadImage(match.photoURL, () => setPhotoLoaded(true));
+    }
 
-    // Check if the current display image is loaded
-    const img = new Image();
-    img.onload = () => setImageLoaded(true);
-    img.src = displayImage;
-  }, [match.avatar, match.photoURL, messageCount]);
+    return () => {
+      setAvatarLoaded(false);
+      setPhotoLoaded(false);
+    };
+  }, [match.avatar, match.photoURL]);
+
+  const isLoading = showAvatar ? !avatarLoaded : !photoLoaded;
 
   return (
     <Card 
@@ -38,25 +57,30 @@ export default function MatchCard({ match, messageCount, onClick }: MatchCardPro
       onClick={onClick}
     >
       <div className="aspect-[3/2] overflow-hidden relative">
-        {!imageLoaded && (
+        {isLoading ? (
           <Skeleton className="w-full h-full absolute inset-0" />
+        ) : (
+          <img
+            src={displayImage}
+            alt={match.name}
+            className="w-full h-full object-cover transform group-hover:scale-105 transition-transform duration-300"
+            loading="eager"
+            decoding="async"
+          />
         )}
-        <img
-          src={currentImage}
-          alt={match.name}
-          className={`w-full h-full object-cover transform group-hover:scale-105 transition-transform duration-300 ${
-            imageLoaded ? 'opacity-100' : 'opacity-0'
-          }`}
-        />
       </div>
       <div className="p-4">
         <div className="flex items-center space-x-2">
           <Avatar className="h-8 w-8">
-            <AvatarImage 
-              src={messageCount <= BITMOJI_THRESHOLD ? match.avatar : match.photoURL} 
-              alt={match.name} 
-            />
-            <AvatarFallback>{match.name[0]}</AvatarFallback>
+            {displayImage ? (
+              <AvatarImage 
+                src={displayImage} 
+                alt={match.name}
+                loading="eager"
+              />
+            ) : (
+              <AvatarFallback>{match.name[0]}</AvatarFallback>
+            )}
           </Avatar>
           <div>
             <h3 className="font-semibold text-gray-900">{match.name}</h3>

@@ -4,7 +4,7 @@ import { Heart, MessageCircle, User, Home, Settings } from 'lucide-react';
 import { signOut } from 'firebase/auth';
 import { auth } from '../firebase';
 import { useSpring, animated } from 'react-spring';
-
+import { APP_NAME } from '../constants/app';
 const Layout: React.FC = () => {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const navigate = useNavigate();
@@ -44,9 +44,10 @@ const Layout: React.FC = () => {
   return (
     <div className="flex flex-col min-h-screen bg-gradient-to-b from-pink-100 to-purple-100">
       <header className="bg-white shadow-md p-4 flex justify-between items-center">
-        <h1 className="text-2xl font-bold text-pink-500">Play Date</h1>
+        <h1 className="text-2xl font-bold text-pink-500">{APP_NAME}</h1>
         <div className="relative">
           <animated.button
+
             style={iconAnimation}
             className="text-gray-500 hover:text-pink-500 focus:outline-none transition-colors duration-200"
             onClick={handleSettingsClick}

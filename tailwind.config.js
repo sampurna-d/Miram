@@ -73,12 +73,17 @@ module.exports = {
           '0%, 100%': { opacity: 1 },
           '50%': { opacity: .5 },
         },
+        "flip": {
+          "0%, 100%": { transform: "rotateY(0deg)" },
+          "50%": { transform: "rotateY(180deg)" }
+        },
       },
       animation: {
         "accordion-down": "accordion-down 0.2s ease-out",
         "accordion-up": "accordion-up 0.2s ease-out",
         "float": "float 3s ease-in-out infinite",
         pulse: 'pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+        "flip": "flip 2s ease-in-out",
       },
       
     },

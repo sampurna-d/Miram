@@ -15,11 +15,14 @@ import { motion } from 'framer-motion';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "./ui/dialog"
 import { matchService } from '../services/matches';
 import { Match } from '../types/match';
-import { UserProfile } from '../types/user'; // Import the existing type
+import { UserProfile } from '../types/user';
 import { calculateAge } from '../utils/helpers';
 import { BITMOJI_THRESHOLD } from '../constants/app';
 import { Skeleton } from "./ui/skeleton";
 
+/**
+ * Interface for chat message structure
+ */
 interface Message {
   id: string;
   senderId: string;
@@ -27,64 +30,86 @@ interface Message {
   timestamp: any;
 }
 
-interface ChatMessage {
-  id: string;
-  senderId: string;
-  text: string;
-  timestamp: any;
+/**
+ * Interface for chat message with read status
+ */
+interface ChatMessage extends Message {
   isRead?: boolean;
 }
 
-const inspirationalMessages = [
+/**
+ * Inspirational messages for AI assistant
+ */
+const INSPIRATIONAL_MESSAGES = [
   "Love is not about finding the right person, but creating a right relationship.",
   "The best and most beautiful things in this world cannot be seen or even heard, but must be felt with the heart.",
   "To love and be loved is to feel the sun from both sides.",
   "Love is composed of a single soul inhabiting two bodies.",
   "The greatest happiness of life is the conviction that we are loved.",
-];
+] as const;
 
-// Define two paths (circle & heart) with identical/compatible command lengths if possible.
-// For simplicity, we do a naive string interpolation. In real usage, ensure matching commands or use an SVG morphing tool.
-const circlePath = "M50,50 m-40,0 a40,40 0 1,0 80,0 a40,40 0 1,0 -80,0";
-const heartPath  = "M50,30 C23,30 10,55 10,70 C10,85 25,95 40,95 C50,95 50,90 50,90 C50,90 50,95 60,95 C75,95 90,85 90,70 C90,55 77,30 50,30";
+/**
+ * SVG path definitions for shape morphing
+ */
+const SVG_PATHS = {
+  CIRCLE: "M50,50 m-40,0 a40,40 0 1,0 80,0 a40,40 0 1,0 -80,0",
+  HEART: "M50,30 C23,30 10,55 10,70 C10,85 25,95 40,95 C50,95 50,90 50,90 C50,90 50,95 60,95 C75,95 90,85 90,70 C90,55 77,30 50,30"
+} as const;
 
-// If you want to do a purely naive interpolation, you can do advanced logic here.
-// For a quick approach, returning one path or the other based on progress might be fine.
-// Or just do a basic partial interpolation approach:
-const morphPath = (progress: number) => {
-  if (progress <= 0) return circlePath;
-  if (progress >= 1) return heartPath;
-  // Here, you could do partial morphing logic or just fade between the two.
-  // For a smoother experience, you normally need matching path commands. 
-  // We'll do a simple "hard" transition near the end as a demonstration:
-  return progress < 0.99 ? circlePath : heartPath;
+/**
+ * Calculate morphed path based on progress
+ */
+const morphPath = (progress: number): string => {
+  if (progress <= 0) return SVG_PATHS.CIRCLE;
+  if (progress >= 1) return SVG_PATHS.HEART;
+  return progress < 0.99 ? SVG_PATHS.CIRCLE : SVG_PATHS.HEART;
 };
 
-export default function MatchesPage() {
+/**
+ * MatchesPage Component
+ * 
+ * Displays a list of user matches with features like:
+ * - Match cards with progressive photo reveal
+ * - Real-time chat
+ * - Match/unmatch functionality
+ * - Profile viewing
+ * 
+ * @component
+ */
+export default function MatchesPage(): JSX.Element {
+  // State and hooks
   const location = useLocation();
+  const navigate = useNavigate();
   const [match, setMatch] = useState<Match | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [newMessage, setNewMessage] = useState('');
   const [showAssistant, setShowAssistant] = useState(false);
   const [assistantMessage, setAssistantMessage] = useState('');
   const [isNewMatch, setIsNewMatch] = useState(false);
-  const navigate = useNavigate();
-  const messagesEndRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
   const [chatOpen, setChatOpen] = useState(false);
   const [selectedMatch, setSelectedMatch] = useState<Match | null>(null);
   const [matches, setMatches] = useState<Match[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // The main progress (0 -> 1) as messageCount goes from 0 -> 50
+  // Refs
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  // Derived state
   const messageCount = messages.length;
   const progress = Math.min(messageCount / 50, 1);
 
-  const shouldShowBitmoji = (messageCount: number) => {
+  /**
+   * Determine if bitmoji should be shown based on message count
+   */
+  const shouldShowBitmoji = (messageCount: number): boolean => {
     return messageCount <= BITMOJI_THRESHOLD;
   };
 
+  /**
+   * Fetch matches on component mount
+   */
   useEffect(() => {
     let isMounted = true;
 
@@ -122,6 +147,9 @@ export default function MatchesPage() {
     };
   }, []);
 
+  /**
+   * Set up real-time message listener
+   */
   useEffect(() => {
     if (match) {
       const messagesRef = collection(db, 'messages');
@@ -131,11 +159,11 @@ export default function MatchesPage() {
         orderBy('timestamp', 'asc')
       );
 
-      const unsubscribe = onSnapshot(q, (querySnapshot) => {
-        const messagesData = querySnapshot.docs.map(doc => ({
+      const unsubscribe = onSnapshot(q, (snapshot) => {
+        const messagesData = snapshot.docs.map(doc => ({
           id: doc.id,
           ...doc.data()
-        } as Message));
+        })) as Message[];
         setMessages(messagesData);
       });
 
@@ -143,24 +171,33 @@ export default function MatchesPage() {
     }
   }, [match]);
 
+  /**
+   * Auto-scroll to bottom when new messages arrive
+   */
   useEffect(() => {
-    // Scroll to bottom whenever messages update
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  // Periodically show the "AI Assistant" pop-up
+  /**
+   * Show periodic AI assistant messages
+   */
   useEffect(() => {
     const timer = setInterval(() => {
-      if (Math.random() < 0.3) { // 30% chance
+      if (Math.random() < 0.3) {
         setShowAssistant(true);
-        setAssistantMessage(inspirationalMessages[Math.floor(Math.random() * inspirationalMessages.length)]);
-        setTimeout(() => setShowAssistant(false), 5000); // Hide after 5 sec
+        setAssistantMessage(
+          INSPIRATIONAL_MESSAGES[Math.floor(Math.random() * INSPIRATIONAL_MESSAGES.length)]
+        );
+        setTimeout(() => setShowAssistant(false), 5000);
       }
-    }, 30000); // check every 30 sec
+    }, 30000);
 
     return () => clearInterval(timer);
   }, []);
 
+  /**
+   * Handle new match state from navigation
+   */
   useEffect(() => {
     if (location.state?.newMatch) {
       setIsNewMatch(true);
@@ -169,7 +206,7 @@ export default function MatchesPage() {
           const welcomeMessage = {
             matchId: match.id,
             senderId: 'system',
-            text: `Congratulations! You've matched with ${matchService.getMatches.name}. Why not start the conversation by sharing something you both have in common?`,
+            text: `Congratulations! You've matched with ${match.name}. Why not start the conversation by sharing something you both have in common?`,
             timestamp: serverTimestamp(),
           };
           addDoc(collection(db, 'messages'), welcomeMessage);
@@ -317,9 +354,12 @@ export default function MatchesPage() {
   return (
     <div className="min-h-screen bg-gradient-to-b from-pink-50 to-purple-50 p-4">
       <div className="max-w-4xl mx-auto">
-        <h1 className="text-3xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-pink-600 to-purple-600 mb-6 text-center">
-          Your Matches
-        </h1>
+        <div className="flex flex-col items-center mb-6">
+          <img src="/App-Logo.png" alt="Love Connect Logo" className="w-16 h-16 mb-2" />
+          <h1 className="text-3xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-pink-600 to-purple-600 text-center">
+            Your Matches
+          </h1>
+        </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {matches.map((match) => (
