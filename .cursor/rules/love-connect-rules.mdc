@@ -1,0 +1,170 @@
+---
+description: 
+globs: 
+---
+# Project Overview
+- This is a dating app focused on creating meaningful connections through personality-based matching rather than appearance-first approach
+- The app uses AI to match compatible users and assists in their conversations
+- Features a progressive revelation system where photos are revealed after meaningful interaction
+- Target audience is Gen Z users experiencing dating app fatigue and seeking genuine connections
+- You have an Ai frined that understands you, motivates you and becomes your dating buddy.
+- Core differentiator is the focus on personality compatibility and Ai buddy.
+
+# Personality
+- Code should be clean, well-documented, and follow SOLID principles
+- Each component should have a single responsibility
+- Use meaningful variable and function names that reflect their purpose
+- Write self-documenting code with clear intent
+- Include JSDoc comments for complex functions
+- Create reusable components and utilities
+- Follow strict TypeScript practices with proper type definitions
+- Maintain consistency in coding style throughout the project
+
+# Tech Stack
+Frontend:
+- React Native with TypeScript for cross-platform mobile development
+- Redux Toolkit for state management
+- Socket.io-client for real-time chat features
+- React Navigation for routing
+- React Native Firebase for authentication
+- Axios for API calls
+- Jest and React Testing Library for testing
+- StoryBook for component documentation
+
+Backend:
+- TypeScript
+- MongoDB for database
+- Socket.io for real-time features
+- Deepseek API for chat assistance
+- Firebase Admin SDK
+- JWT for authentication
+- Jest for testing
+- Winston for logging
+
+DevOps:
+- GitHub Actions for CI/CD
+- Docker for containerization
+- AWS for hosting
+- MongoDB Atlas for database hosting
+
+# Error Fixing Process
+1. Error Identification:
+   - Check console logs and error messages
+   - Use debugger statements in development
+   - Verify network requests in debugging tools
+   - Check Redux DevTools for state issues
+
+2. Debugging Steps:
+   - Console log relevant variables and state
+   - Use Chrome DevTools for React debugging
+   - Check Firebase Console for auth issues
+   - Verify MongoDB queries in MongoDB Compass
+
+3. Common Issues:
+   - Authentication: Check Firebase token validity
+   - API: Verify request/response in network tab
+   - State: Confirm Redux action dispatch order
+   - Socket: Check connection status and events
+
+4. Testing:
+   - Write unit tests for the fix
+   - Perform regression testing
+   - Test on both iOS and Android
+   - Verify in different network conditions
+
+# Building Process
+1. Feature Development:
+   - Create feature branch from development
+   - Write failing tests first (TDD approach)
+   - Implement the feature
+   - Add proper error handling
+   - Write documentation
+   - Create PR for review
+
+2. Component Creation:
+   - Create component folder with index.ts
+   - Add TypeScript interfaces
+   - Write the component
+   - Add StoryBook story
+   - Write unit tests
+   - Add README if complex
+
+3. Testing:
+   - Run `npm test` for unit tests
+   - Use `npm run e2e` for end-to-end tests
+   - Verify on iOS simulator
+   - Test on Android emulator
+   - Check different screen sizes
+
+4. Build Commands:
+   ```bash
+   # Development
+   npm run start
+   npm run ios
+   npm run android
+   
+   # Testing
+   npm run test
+   npm run test:coverage
+   
+   # Production Build
+   npm run build:ios
+   npm run build:android
+   ```
+
+# Github Push Process
+1. Branch Management:
+   ```bash
+   # Create feature branch
+   git checkout -b feature/ticket-number-description
+   
+   # Keep branch updated
+   git fetch origin
+   git rebase origin/development
+   ```
+
+2. Commit Standards:
+   ```
+   feat: add new feature
+   fix: bug fix
+   docs: documentation changes
+   style: formatting, missing semicolons
+   refactor: code restructuring
+   test: adding tests
+   chore: maintenance tasks
+   ```
+
+3. PR Process:
+   - Create PR against development branch
+   - Fill PR template completely
+   - Add relevant screenshots/videos
+   - Link related tickets
+   - Request review from team
+   - Address review comments
+   - Squash and merge after approval
+
+4. Deployment:
+   - Merge development into staging
+   - Run staging tests
+   - Create release PR to main
+   - Tag release with version
+
+# Comments
+Always include as much comments as possible so it would be easier to understand the code even for a complete beginner. 
+
+# Important
+- Never push sensitive data or API keys
+- Keep .env files in password manager
+- Run tests before every commit
+- Update documentation when changing features
+- Regular dependency updates
+- Daily backups of database
+- Monitor error tracking tools
+- Keep API documentation updated
+- Regular security audits
+- Performance monitoring
+- Always use TypeScript strict mode
+- Regular code quality checks with SonarQube
+- Keep accessibility in mind
+- Follow Git branch naming convention
+- Regular dependency vulnerability checks

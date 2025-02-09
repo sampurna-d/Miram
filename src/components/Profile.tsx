@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { auth, db, storage } from '../firebase';
 import { doc, getDoc, updateDoc } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
@@ -11,6 +11,8 @@ import { Label } from "./ui/label"
 import { Camera, Loader2, User, MapPin, Heart, Calendar, Sparkles } from 'lucide-react'
 import { useToast } from "./ui/use-toast"
 import AvatarCreator from './AvatarCreator';
+import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover"
+import { useAvatar } from '../contexts/AvatarContext';
 
 interface UserProfile {
   firstName: string;
@@ -26,6 +28,7 @@ interface UserProfile {
   bitmoji?: string;
   profilePicture?: string;
   avatar?: string;
+  messageCount: number;
 }
 
 export default function Profile() {
@@ -40,15 +43,18 @@ export default function Profile() {
     interestedIn: "",
     interests: [],
     occupation: "",
-    education: ""
+    education: "",
+    messageCount: 0
   });
-  const [age, setAge] = useState<number>(0);
   const [isLoading, setIsLoading] = useState(true);
   const [isBitmojiEditorOpen, setIsBitmojiEditorOpen] = useState(false);
   const [isAvatarEditorOpen, setIsAvatarEditorOpen] = useState(false);
+  const [isFlipping, setIsFlipping] = useState(false);
 
   // Add a ref for the hidden file input
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const { showAvatar } = useAvatar();
 
   // Trigger file input click when user clicks the camera button
   const handleProfilePicClick = () => {
@@ -98,20 +104,44 @@ export default function Profile() {
       
       if (docSnap.exists()) {
         const data = docSnap.data();
-        // Convert Firestore Timestamp to Date
         setProfile({
           ...data,
           dateOfBirth: data.dateOfBirth.toDate(),
         } as UserProfile);
-        // Calculate age from date of birth
-        const age = new Date().getFullYear() - data.dateOfBirth.toDate().getFullYear();
-        setAge(age);
       }
       setIsLoading(false);
     };
 
     fetchProfile();
   }, []);
+
+  // Update the useEffect for image preloading
+  useEffect(() => {
+    if (profile.profilePicture) {
+      const img = document.createElement('img');
+      img.src = profile.profilePicture;
+    }
+
+    if (profile.avatar) {
+      const img = document.createElement('img');
+      img.src = profile.avatar;
+    }
+  }, [profile.profilePicture, profile.avatar]);
+
+  // Memoize expensive calculations
+  const age = useMemo(() => {
+    if (!profile.dateOfBirth) return 0;
+    return new Date().getFullYear() - profile.dateOfBirth.getFullYear();
+  }, [profile.dateOfBirth]);
+
+  useEffect(() => {
+    // Start flip animation when component mounts
+    setIsFlipping(true);
+    const timer = setTimeout(() => setIsFlipping(false), 2000);
+    return () => clearTimeout(timer);
+  }, []);
+
+  // Determine which image to show based on message count
 
   const handleSave = async () => {
     try {
@@ -160,20 +190,116 @@ export default function Profile() {
     });
   };
 
+  // Add these styles to show different images on flip
+  const flipCardStyles = {
+    transformStyle: 'preserve-3d' as const,
+    transition: 'transform 0.6s',
+    position: 'relative' as const,
+    width: '96px',
+    height: '96px',
+  };
+
+  const flipCardInnerStyles = {
+    position: 'absolute' as const,
+    width: '100%',
+    height: '100%',
+    backfaceVisibility: 'hidden' as const,
+  };
+
   if (isLoading) {
-    return <div>Loading...</div>;
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <Loader2 className="w-8 h-8 animate-spin text-pink-500" />
+      </div>
+    );
   }
 
+  console.log(showAvatar);
+  const frontImage = showAvatar ? profile.avatar : profile.profilePicture;
+  const backImage = showAvatar ? profile.profilePicture : profile.avatar;
   return (
     <div className="min-h-screen bg-gradient-to-b from-pink-50 to-purple-50 py-8 px-4">
       <div className="max-w-2xl mx-auto">
+
+        <Card className="mb-6 card-hover">
+          <CardContent className="pt-6">
+            <div className="flex items-start gap-4">
+              {/* Profile Picture with Flip Animation */}
+              <div className="relative">
+                <div 
+                  className={isFlipping ? 'animate-flip' : ''} 
+                  style={flipCardStyles}
+                >
+                  {/* Front - Profile Picture */}
+                  <Avatar 
+                    className="w-24 h-24 rounded-full border-4 border-pink-200 ring-2 ring-pink-100 ring-offset-2"
+                    style={{ ...flipCardInnerStyles, transform: 'rotateY(0deg)' }}
+                  >
+                    <AvatarImage src={frontImage || '/placeholder.svg'} />
+                    <AvatarFallback>{profile.firstName?.[0]}</AvatarFallback>
+                  </Avatar>
+                  
+
+                  {/* Back - Avatar */}
+                  <Avatar 
+                    className="w-24 h-24 rounded-full border-4 border-pink-200 ring-2 ring-pink-100 ring-offset-2"
+                    style={{ ...flipCardInnerStyles, transform: 'rotateY(180deg)' }}
+                  >
+                    <AvatarImage src={backImage || '/placeholder.svg'} />
+                    <AvatarFallback>😊</AvatarFallback>
+                  </Avatar>
+
+                </div>
+
+                {/* Edit button outside flip container */}
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button
+                      size="icon"
+                      variant="outline"
+                      className="absolute -bottom-2 -right-2 rounded-full h-8 w-8 bg-white hover:bg-pink-50"
+                    >
+                      <Camera className="h-4 w-4 text-pink-600" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-48 p-2">
+                    <div className="flex flex-col gap-2">
+                      <Button
+                        variant="ghost"
+                        className="w-full justify-start gap-2"
+                        onClick={handleProfilePicClick}
+                      >
+                        <Camera className="h-4 w-4" />
+                        Edit Profile Picture
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        className="w-full justify-start gap-2"
+                        onClick={() => setIsAvatarEditorOpen(true)}
+                      >
+                        <Sparkles className="h-4 w-4" />
+                        Edit Avatar
+                      </Button>
+                    </div>
+                  </PopoverContent>
+                </Popover>
+              </div>
+
+              {/* Profile Info */}
+              <div className="flex-1">
+                <h2 className="text-2xl font-semibold text-gray-900">
+                  {profile.firstName} {profile.lastName}
+                </h2>
+                <p className="text-sm text-gray-500">
+                  {showAvatar ? 'Showing Avatar' : 'Showing Profile Picture'}
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Rest of the profile sections */}
         <Card className="card-hover">
-          <CardHeader>
-            <CardTitle className="text-3xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-pink-600 to-purple-600">
-              Your Profile
-            </CardTitle>
-            <p className="text-gray-600">Update your personal information</p>
-          </CardHeader>
           <CardContent className="space-y-6">
             {/* Basic Information */}
             <div className="space-y-4 rounded-2xl bg-pink-50/30 p-6">
@@ -295,71 +421,6 @@ export default function Profile() {
               </div>
             </div>
 
-            {/* Profile Picture & Avatar Section */}
-            <div className="space-y-6 rounded-2xl bg-pink-50/30 p-6">
-              <h3 className="font-semibold text-lg text-gray-700 flex items-center gap-2">
-                <Camera className="w-5 h-5 text-pink-600" />
-                Profile Pictures
-              </h3>
-
-              {/* Profile Picture */}
-              <div className="space-y-2">
-                <label className="text-sm font-medium text-gray-700">Profile Picture</label>
-                <div className="flex items-center space-x-4">
-                  <div className="relative">
-                    <Avatar className="w-24 h-24 rounded-full border-4 border-pink-200 ring-2 ring-pink-100 ring-offset-2">
-                      <AvatarImage src={profile.profilePicture || '/placeholder.svg'} />
-                      <AvatarFallback className="bg-pink-100">
-                        {profile.firstName?.[0]}
-                        {profile.lastName?.[0]}
-                      </AvatarFallback>
-                    </Avatar>
-                    <Button
-                      size="icon"
-                      variant="outline"
-                      className="absolute -bottom-2 -right-2 rounded-full h-8 w-8 bg-white hover:bg-pink-50"
-                      onClick={handleProfilePicClick}
-                    >
-                      <Camera className="h-4 w-4 text-pink-600" />
-                    </Button>
-                  </div>
-                  <div className="flex-1">
-                    <p className="text-sm text-gray-600">
-                      This is your main profile picture that will be shown after the first 10 messages in a chat.
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              {/* Avatar */}
-              <div className="space-y-2 pt-4 border-t border-pink-100">
-                <label className="text-sm font-medium text-gray-700">Your Avatar</label>
-                <div className="flex items-center space-x-4">
-                  <div className="relative">
-                    <Avatar className="w-24 h-24 rounded-full border-4 border-pink-200 ring-2 ring-pink-100 ring-offset-2">
-                      <AvatarImage src={profile.avatar || '/placeholder.svg'} />
-                      <AvatarFallback className="bg-pink-100">
-                        <span className="text-2xl">😊</span>
-                      </AvatarFallback>
-                    </Avatar>
-                    <Button
-                      size="icon"
-                      variant="outline"
-                      className="absolute -bottom-2 -right-2 rounded-full h-8 w-8 bg-white hover:bg-pink-50"
-                      onClick={() => setIsAvatarEditorOpen(true)}
-                    >
-                      <Sparkles className="h-4 w-4 text-pink-600" />
-                    </Button>
-                  </div>
-                  <div className="flex-1">
-                    <p className="text-sm text-gray-600">
-                      Your avatar will be shown for the first 10 messages in new chats before revealing your profile picture.
-                    </p>
-                  </div>
-                </div>
-              </div>
-            </div>
-
             <div className="pt-4 pb-6">
               <Button onClick={handleSave} className="w-full group bg-gradient-to-r from-pink-500 to-purple-500 hover:from-pink-600 hover:to-purple-600 rounded-xl">
                 <div className="flex items-center justify-center gap-2">
@@ -370,26 +431,35 @@ export default function Profile() {
             </div>
           </CardContent>
         </Card>
-
-        {/* BitmojiEditor component */}
-
-        <AvatarCreator
-          isOpen={isAvatarEditorOpen}
-          onClose={() => setIsAvatarEditorOpen(false)}
-          onSave={async (url) => {
-            try {
-              await updateDoc(doc(db, 'users', auth.currentUser!.uid), {
-                avatar: url
-              });
-              setProfile(prev => ({ ...prev, avatar: url }));
-            } catch (error) {
-              console.error('Error updating avatar:', error);
-            }
-          }}
-          currentAvatar={profile.avatar}
-        />
       </div>
-      {/* Hidden file input for profile picture selection */}
+
+      {/* Keep existing AvatarCreator and hidden input */}
+      <AvatarCreator
+        isOpen={isAvatarEditorOpen}
+        onClose={() => setIsAvatarEditorOpen(false)}
+        onSave={async (url) => {
+          try {
+            if (!auth.currentUser) return;
+            await updateDoc(doc(db, 'users', auth.currentUser.uid), {
+              avatar: url
+            });
+            setProfile(prev => ({ ...prev, avatar: url }));
+            toast({
+              title: "Avatar Updated",
+              description: "Your avatar has been updated successfully!"
+            });
+          } catch (error) {
+            console.error('Error updating avatar:', error);
+            toast({
+              title: "Error",
+              description: "Failed to update avatar",
+              variant: "destructive",
+            });
+          }
+        }}
+        currentAvatar={profile.avatar}
+      />
+      
       <input
         ref={fileInputRef}
         type="file"

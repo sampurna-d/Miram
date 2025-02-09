@@ -17,12 +17,49 @@ import { matchService } from '../services/matches'
 import { presenceService } from '../services/presence'
 import { UserProfile } from '../types/user'
 import { calculateAge, calculateDistance } from '../utils/helpers'
+import { CupidAI } from './CupidAI'
+import { Skeleton } from "./ui/skeleton"
 
-export default function HomePage() {
+/**
+ * Loading skeleton for HomePage
+ */
+function HomePageSkeleton() {
+  return (
+    <div className="min-h-screen bg-gradient-to-b from-pink-50 to-purple-50 p-4">
+      <div className="max-w-4xl mx-auto">
+        <div className="flex flex-col items-center mb-8">
+          <Skeleton className="w-16 h-16 rounded-full mb-2" />
+          <Skeleton className="h-8 w-48" />
+        </div>
+        <div className="flex flex-col items-center mb-8 flex-grow mt-4">
+          <div className="relative w-[300px] h-[300px] mb-8">
+            <Skeleton className="w-full h-full rounded-full" />
+          </div>
+          <Skeleton className="h-12 w-48" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * HomePage Component
+ * 
+ * Main landing page after login featuring:
+ * - AI-powered matching system
+ * - Interactive Cupid assistant
+ * - Real-time presence tracking
+ * - Match suggestions based on compatibility
+ * 
+ * @component
+ */
+export default function HomePage(): JSX.Element {
+  // Navigation and UI hooks
   const navigate = useNavigate()
   const { toast } = useToast()
+
+  // User and matching state
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(null)
-  const [isLoading, setIsLoading] = useState(true)
   const [matchedUser, setMatchedUser] = useState<any>(() => {
     if (typeof window !== "undefined") {
       const saved = localStorage.getItem("matchedUser")
@@ -30,14 +67,20 @@ export default function HomePage() {
     }
     return null
   })
+  const [potentialMatches, setPotentialMatches] = useState<UserProfile[]>([])
+
+  // UI state
+  const [isLoading, setIsLoading] = useState(true)
   const [noMatchFound, setNoMatchFound] = useState(false)
   const [isChatOpen, setIsChatOpen] = useState(false)
   const [isMatching, setIsMatching] = useState(false)
-  const [error, setError] = useState("")
   const [isThinking, setIsThinking] = useState(false)
+  const [error, setError] = useState("")
   const [chatMessage, setChatMessage] = useState("")
-  const [potentialMatches, setPotentialMatches] = useState<UserProfile[]>([])
 
+  /**
+   * Handle unmatch event from window
+   */
   useEffect(() => {
     const handleUnmatch = () => {
       setMatchedUser(null)
@@ -48,11 +91,13 @@ export default function HomePage() {
     return () => window.removeEventListener("unmatch", handleUnmatch)
   }, [])
 
+  /**
+   * Initialize user data and presence tracking
+   */
   useEffect(() => {
     const unsubscribe = auth.onAuthStateChanged(async (user) => {
       if (user) {
         try {
-          console.log("Current user:", user.email);
           const userDoc = await getDocs(
             query(
               collection(db, "users"), 
@@ -64,7 +109,7 @@ export default function HomePage() {
             const userData = userDoc.docs[0].data() as UserProfile;
             const userId = userDoc.docs[0].id;
             
-            // Ensure all required fields exist
+            // Initialize user profile with defaults
             const currentUser: UserProfile = {
               ...userData,
               id: userId,
@@ -79,16 +124,15 @@ export default function HomePage() {
 
             setCurrentUser(currentUser);
             
-            // Start tracking presence
+            // Start presence tracking
             if (userId) {
               presenceService.trackPresence(userId);
             }
 
-            // Only fetch matches if we have a valid user with preferences
+            // Fetch potential matches if user has preferences
             if (currentUser.preferences) {
               try {
                 const matches = await userService.findMatches(currentUser);
-                console.log("Found potential matches:", matches);
                 setPotentialMatches(matches);
               } catch (error) {
                 console.error("Error fetching matches:", error);
@@ -126,12 +170,14 @@ export default function HomePage() {
     return () => unsubscribe();
   }, [navigate]);
 
+  /**
+   * Verify existing match status
+   */
   useEffect(() => {
     const verifyMatch = async () => {
       if (!matchedUser?.id || !auth.currentUser?.uid) return;
 
       try {
-        console.log("Verifying match for users:", auth.currentUser.uid, matchedUser.id);
         const matches = await matchService.getMatches(auth.currentUser.uid);
         
         const matchExists = matches.some(match => 
@@ -139,7 +185,6 @@ export default function HomePage() {
         );
 
         if (!matchExists) {
-          console.log("No valid match found, clearing local state");
           setMatchedUser(null);
           localStorage.removeItem("matchedUser");
         }
@@ -156,6 +201,9 @@ export default function HomePage() {
     verifyMatch();
   }, [matchedUser]);
 
+  /**
+   * Handle user logout
+   */
   const handleLogout = async () => {
     try {
       await signOut(auth)
@@ -174,7 +222,10 @@ export default function HomePage() {
     }
   }
 
-  const createMatch = async (matchedUser: any) => {
+  /**
+   * Create a new match with another user
+   */
+  const createMatch = async (matchedUser: UserProfile) => {
     try {
       if (!auth.currentUser?.uid || !matchedUser.id) {
         throw new Error("Invalid user IDs for match creation")
@@ -210,6 +261,9 @@ export default function HomePage() {
     }
   }
 
+  /**
+   * Start the matching process
+   */
   const startMatching = async () => {
     if (!currentUser) {
       toast({
@@ -224,11 +278,8 @@ export default function HomePage() {
     setError("");
     
     try {
-      console.log("Starting matching process for user:", currentUser.id);
-      
       // Fetch potential matches
       const matches = await userService.findMatches(currentUser);
-      console.log("Potential matches found:", matches.length);
 
       if (matches.length === 0) {
         setMatchedUser(null);
@@ -242,32 +293,15 @@ export default function HomePage() {
         return;
       }
 
-      // Filter and score matches
-      const scoredMatches = matches.map(user => {
-        const commonInterests = user.interests?.filter(
-          interest => currentUser.interests?.includes(interest)
-        ) || [];
+      // Score and filter matches
+      const scoredMatches = matches.map(user => ({
+        ...user,
+        score: calculateMatchScore(currentUser, user),
+        commonInterests: getCommonInterests(currentUser, user)
+      }));
 
-        const ageMatch = Math.abs(
-          calculateAge(currentUser.dateOfBirth.toDate()) - 
-          calculateAge(user.dateOfBirth.toDate())
-        );
-
-        const distance = calculateDistance(currentUser.location, user.location);
-
-        // Calculate match score (higher is better)
-        const score = (
-          (commonInterests.length * 10) + // Each common interest is worth 10 points
-          (100 - ageMatch) + // Closer age = more points
-          (100 - distance) // Closer distance = more points
-        );
-
-        return { ...user, score, commonInterests };
-      });
-
-      // Sort by score and get the best match
+      // Get best match
       const bestMatch = scoredMatches.sort((a, b) => b.score - a.score)[0];
-      console.log("Best match found:", bestMatch);
 
       if (bestMatch) {
         await createMatch(bestMatch);
@@ -294,11 +328,40 @@ export default function HomePage() {
     }
   };
 
+  /**
+   * Calculate match score between two users
+   */
+  const calculateMatchScore = (user1: UserProfile, user2: UserProfile): number => {
+    const commonInterests = getCommonInterests(user1, user2).length;
+    const ageMatch = Math.abs(
+      calculateAge(user1.dateOfBirth.toDate()) - 
+      calculateAge(user2.dateOfBirth.toDate())
+    );
+    const distance = calculateDistance(user1.location, user2.location);
+
+    return (
+      (commonInterests * 10) + // Each common interest is worth 10 points
+      (100 - ageMatch) +      // Closer age = more points
+      (100 - distance)        // Closer distance = more points
+    );
+  };
+
+  /**
+   * Get common interests between two users
+   */
+  const getCommonInterests = (user1: UserProfile, user2: UserProfile): string[] => {
+    return user1.interests?.filter(
+      interest => user2.interests?.includes(interest)
+    ) || [];
+  };
+
+  /**
+   * Handle unmatching with current match
+   */
   const handleUnmatch = async () => {
     try {
       if (!auth.currentUser || !matchedUser?.id) return;
 
-      // Get the match document
       const matches = await matchService.getMatches(auth.currentUser.uid);
       const match = matches.find(m => m.users.includes(matchedUser.id));
       
@@ -324,18 +387,33 @@ export default function HomePage() {
     }
   };
 
+  /**
+   * Handle Cupid AI click interaction
+   */
   const handleCupidClick = () => {
     setIsChatOpen(!isChatOpen)
     setIsThinking(true)
     setTimeout(() => setIsThinking(false), 2000)
   }
 
+  /**
+   * Handle sending chat message
+   */
   const handleSendMessage = () => {
     if (!chatMessage.trim()) return
     // Handle chat message sending logic here
     setChatMessage("")
   }
 
+  /**
+   * Handle messages from Cupid AI
+   */
+  const handleCupidMessage = (message: string) => {
+    console.log('Cupid says:', message);
+    // Optionally, display the message in a toast or chat interface
+  };
+
+  // Animation springs
   const fadeIn = useSpring({
     from: { opacity: 0 },
     to: { opacity: 1 },
@@ -348,125 +426,146 @@ export default function HomePage() {
     config: { tension: 300, friction: 20 },
   })
 
+  // Preload images
+  useEffect(() => {
+    const preloadImages = async () => {
+      const images = ['/App-Logo.png'];
+      await Promise.all(
+        images.map((src) => {
+          return new Promise((resolve, reject) => {
+            const img = new Image();
+            img.onload = resolve;
+            img.onerror = reject;
+            img.src = src;
+          });
+        })
+      );
+    };
+
+    preloadImages();
+  }, []);
+
   if (isLoading) {
-    return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-pink-500"></div>
-      </div>
-    )
+    return <HomePageSkeleton />;
   }
 
-  if (!currentUser) return null
+  if (!currentUser) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div>Please log in to continue</div>
+      </div>
+    );
+  }
 
   return (
     <animated.div
       style={fadeIn}
       className="flex flex-col items-center min-h-screen bg-gradient-to-b from-pink-100 to-purple-100 p-4"
     >
-      <header className="w-full text-center mb-8">
-        <h1 className="text-4xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-pink-600 to-purple-600">
-          Love Connect
-        </h1>
-        {currentUser && (
-          <h2 className="text-2xl font-semibold text-gray-700 mt-2">
-            Hi, <span className="text-pink-600">{currentUser.firstName}</span>
-          </h2>
-        )}
-      </header>
-
-      <div className="flex flex-col items-center mb-8 flex-grow mt-4">
-        <div className="relative w-[300px] h-[300px] mb-8">
-          <AnimatedCupid onClick={handleCupidClick} isThinking={isThinking} />
-        </div>
-
-        <animated.div 
-          style={chatSpring} 
-          className="w-full max-w-md"
-        >
-          <Card className="card-hover backdrop-blur-sm">
-            <CardContent className="p-6">
-              <h2 className="text-xl font-semibold text-gray-700 mb-4 flex items-center gap-2">
-                <MessageCircle className="w-5 h-5 text-pink-500" />
-                AI Chat Assistant
-              </h2>
-              <div className="bg-pink-50/50 rounded-2xl p-4 mb-4">
-                <p className="text-gray-600">Hello! I'm your AI assistant. How can I help you with your dating journey today?</p>
-              </div>
-              <div className="flex gap-2">
-                <Input
-                  type="text"
-                  placeholder="Type your message..."
-                  value={chatMessage}
-                  onChange={(e) => setChatMessage(e.target.value)}
-                  onKeyPress={(e) => e.key === "Enter" && handleSendMessage()}
-                  className="input-cute flex-1"
-                />
-                <Button onClick={handleSendMessage} className="group">
-                  <MessageCircle className="h-4 w-4 group-hover:animate-bounce" />
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        </animated.div>
-
-        {noMatchFound && (
-          <p className="text-lg text-red-500 mt-4 animate-bounce">
-            Sorry, no match found at this time! 💔
-          </p>
-        )}
-
-        {error && (
-          <div className="mt-4 p-4 bg-red-100 border border-red-400 text-red-700 rounded-2xl">
-            {error}
+      <div className="relative min-h-screen bg-gradient-to-b from-pink-50 to-purple-50">
+        <CupidAI onMessage={handleCupidMessage} />
+        <div className="max-w-4xl mx-auto p-4">
+          <div className="flex flex-col items-center mb-8">
+            <img src="/App-Logo.png" alt="Love Connect Logo" className="w-16 h-16 mb-2" />
+            <h1 className="text-3xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-pink-600 to-purple-600">
+              {"Hi "}{currentUser.firstName}
+            </h1>
           </div>
-        )}
+          <div className="flex flex-col items-center mb-8 flex-grow mt-4">
+            <div className="relative w-[300px] h-[300px] mb-8">
+              <AnimatedCupid onClick={handleCupidClick} isThinking={isThinking} />
+            </div>
 
-        {matchedUser ? (
-          <Card className="mt-6 w-full max-w-md card-hover">
-            <CardContent className="p-6">
-              <div className="flex justify-between items-center mb-4">
-                <h3 className="text-xl font-semibold text-transparent bg-clip-text bg-gradient-to-r from-pink-600 to-purple-600">
-                  You matched with {matchedUser.name}! 💕
-                </h3>
-                <Button 
-                  variant="destructive" 
-                  onClick={handleUnmatch} 
-                  className="group"
-                >
-                  <UserX className="h-4 w-4 mr-2 group-hover:animate-bounce" />
-                  Unmatch
-                </Button>
+            <animated.div 
+              style={chatSpring} 
+              className="w-full max-w-md"
+            >
+              <Card className="card-hover backdrop-blur-sm">
+                <CardContent className="p-6">
+                  <h2 className="text-xl font-semibold text-gray-700 mb-4 flex items-center gap-2">
+                    <MessageCircle className="w-5 h-5 text-pink-500" />
+                    AI Chat Assistant
+                  </h2>
+                  <div className="bg-pink-50/50 rounded-2xl p-4 mb-4">
+                    <p className="text-gray-600">Hello! I'm your AI assistant. How can I help you with your dating journey today?</p>
+                  </div>
+                  <div className="flex gap-2">
+                    <Input
+                      type="text"
+                      placeholder="Type your message..."
+                      value={chatMessage}
+                      onChange={(e) => setChatMessage(e.target.value)}
+                      onKeyPress={(e) => e.key === "Enter" && handleSendMessage()}
+                      className="input-cute flex-1"
+                    />
+                    <Button onClick={handleSendMessage} className="group">
+                      <MessageCircle className="h-4 w-4 group-hover:animate-bounce" />
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            </animated.div>
+
+            {noMatchFound && (
+              <p className="text-lg text-red-500 mt-4 animate-bounce">
+                Sorry, no match found at this time! 💔
+              </p>
+            )}
+
+            {error && (
+              <div className="mt-4 p-4 bg-red-100 border border-red-400 text-red-700 rounded-2xl">
+                {error}
               </div>
-              <div className="bg-pink-50/50 rounded-2xl p-4">
-                <p className="text-gray-600">
-                  Common interests: {matchedUser.interests?.join(", ") || "No common interests"}
-                </p>
-              </div>
-            </CardContent>
-          </Card>
-        ) : (
-          <Button
-            className="mt-8 group relative overflow-hidden"
-            onClick={startMatching}
-            disabled={isMatching}
+            )}
+
+            {matchedUser ? (
+              <Card className="mt-6 w-full max-w-md card-hover">
+                <CardContent className="p-6">
+                  <div className="flex justify-between items-center mb-4">
+                    <h3 className="text-xl font-semibold text-transparent bg-clip-text bg-gradient-to-r from-pink-600 to-purple-600">
+                      You matched with {matchedUser.name}! 💕
+                    </h3>
+                    <Button 
+                      variant="destructive" 
+                      onClick={handleUnmatch} 
+                      className="group"
+                    >
+                      <UserX className="h-4 w-4 mr-2 group-hover:animate-bounce" />
+                      Unmatch
+                    </Button>
+                  </div>
+                  <div className="bg-pink-50/50 rounded-2xl p-4">
+                    <p className="text-gray-600">
+                      Common interests: {matchedUser.interests?.join(", ") || "No common interests"}
+                    </p>
+                  </div>
+                </CardContent>
+              </Card>
+            ) : (
+              <Button
+                className="mt-8 group relative overflow-hidden"
+                onClick={startMatching}
+                disabled={isMatching}
+              >
+                <span className="relative z-10 flex items-center">
+                  <Heart className="mr-2 h-5 w-5 group-hover:animate-bounce" />
+                  {isMatching ? "Finding Match..." : "Start Matching"}
+                </span>
+                <div className="absolute inset-0 bg-gradient-to-r from-pink-500 to-purple-500 group-hover:opacity-90 transition-opacity" />
+              </Button>
+            )}
+          </div>
+
+          <Button 
+            variant="outline" 
+            className="fixed bottom-4 right-4 group" 
+            onClick={handleLogout}
           >
-            <span className="relative z-10 flex items-center">
-              <Heart className="mr-2 h-5 w-5 group-hover:animate-bounce" />
-              {isMatching ? "Finding Match..." : "Start Matching"}
-            </span>
-            <div className="absolute inset-0 bg-gradient-to-r from-pink-500 to-purple-500 group-hover:opacity-90 transition-opacity" />
+            <LogOut className="h-4 w-4 mr-2 group-hover:animate-bounce" />
+            Logout
           </Button>
-        )}
+        </div>
       </div>
-
-      <Button 
-        variant="outline" 
-        className="fixed bottom-4 right-4 group" 
-        onClick={handleLogout}
-      >
-        <LogOut className="h-4 w-4 mr-2 group-hover:animate-bounce" />
-        Logout
-      </Button>
     </animated.div>
   )
 }
